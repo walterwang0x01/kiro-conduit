@@ -65,6 +65,10 @@ class AcpClientConfig:
     extra_env: dict[str, str] | None = None
     # 等待响应的超时时间（秒）
     response_timeout: float = 60.0
+    # 自动决策代理发来的 session/request_permission：
+    # "allow_once" / "allow_always" / "reject_once" / "reject_always"
+    # kiro-conduit 默认全自动 allow_once，因为编排器跑在无人干预场景
+    permission_policy: str = "allow_once"
 
 
 # ---------------------------------------------------------------------------
@@ -314,18 +318,98 @@ class AcpClient:
             return
         # 反向请求（代理向客户端要东西）：含 method 且有 id
         if "method" in msg and "id" in msg:
-            logger.warning(
-                "ACP server requested %s (id=%s); not implemented in M0",
-                msg.get("method"),
-                msg.get("id"),
-            )
+            self._handle_reverse_request(msg)
             return
         logger.warning("unrecognized ACP message: %r", msg)
 
+    def _handle_reverse_request(self, msg: dict[str, Any]) -> None:
+        """处理代理 → 客户端的反向 JSON-RPC 请求。"""
+        method = msg.get("method", "")
+        req_id = msg.get("id")
+        params = msg.get("params") or {}
+
+        if method == "session/request_permission":
+            self._respond_permission(req_id, params)
+            return
+
+        # 其他反向请求（fs/read / fs/write / terminal/* 等）M0 暂不实现
+        logger.warning(
+            "ACP server requested %s (id=%s); auto-replying with method-not-found",
+            method,
+            req_id,
+        )
+        asyncio.create_task(
+            self._send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {
+                        "code": -32601,  # JSON-RPC standard: Method not found
+                        "message": f"client does not implement {method}",
+                    },
+                }
+            )
+        )
+
+    def _respond_permission(self, req_id: Any, params: dict[str, Any]) -> None:
+        """根据 permission_policy 自动响应权限请求。"""
+        options = params.get("options") or []
+        target_kind = self._config.permission_policy
+        chosen_id: str | None = None
+        for opt in options:
+            if isinstance(opt, dict) and opt.get("kind") == target_kind:
+                chosen_id = str(opt.get("optionId") or "")
+                break
+
+        # 找不到偏好的就退到 allow_once，再退到第一个选项
+        if chosen_id is None:
+            for opt in options:
+                if isinstance(opt, dict) and opt.get("kind") == "allow_once":
+                    chosen_id = str(opt.get("optionId") or "")
+                    break
+        if chosen_id is None and options:
+            first = options[0]
+            if isinstance(first, dict):
+                chosen_id = str(first.get("optionId") or "")
+
+        if chosen_id is None:
+            logger.warning("permission request has no usable options: %r", params)
+            asyncio.create_task(
+                self._send(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "result": {"outcome": {"outcome": "cancelled"}},
+                    }
+                )
+            )
+            return
+
+        logger.debug(
+            "auto-responding permission (policy=%s, optionId=%s)",
+            target_kind,
+            chosen_id,
+        )
+        asyncio.create_task(
+            self._send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "outcome": {
+                            "outcome": "selected",
+                            "optionId": chosen_id,
+                        }
+                    },
+                }
+            )
+        )
+
     def _handle_response(self, msg: dict[str, Any]) -> None:
         msg_id = msg.get("id")
+        # kiro-conduit 自己发的 request id 都是 int，反向请求的 id 是 str
+        # 这里只匹配 int id（即响应自己发出的请求）
         if not isinstance(msg_id, int):
-            logger.warning("response id not int: %r", msg)
             return
         future = self._pending.get(msg_id)
         if future is None or future.done():
