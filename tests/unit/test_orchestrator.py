@@ -1,0 +1,298 @@
+"""单元测试：ParallelOrchestrator。
+
+不调真 Kiro：用 monkeypatch 替换 ParallelOrchestrator._run_one_task 直接产出结果。
+这样能测到 wave 调度、跳过逻辑、失败传播，而不依赖任何外部进程。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import subprocess
+from collections.abc import Callable
+from pathlib import Path
+from textwrap import dedent
+
+import pytest
+
+from kiro_conduit.dag import load_workspace
+from kiro_conduit.orchestrator import ParallelOrchestrator
+from kiro_conduit.roles.coordinator import CoordinatorOutcome
+from kiro_conduit.types import LayerResult, TaskResult, VerifyLayer, VerifyResult
+
+# ---------------------------------------------------------------------------
+# fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def real_repo(tmp_path: Path) -> Path:
+    """初始化一个真 git repo（worktree manager 需要）。"""
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.com",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t.com"}
+    subprocess.run(
+        ["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True
+    )
+    for k, v in env.items():
+        subprocess.run(["git", "config", k.lower().replace("git_", "").replace("_", "."), v],
+                       cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, capture_output=True)
+    (tmp_path / "README.md").write_text("base\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=tmp_path, check=True, capture_output=True,
+        env={**dict(__import__("os").environ), **env},
+    )
+    return tmp_path
+
+
+def write_workspace_with_specs(tmp_path: Path, dag_yaml: str) -> Path:
+    """把 dag.yaml 写到 tmp_path，并为每个 task 创建空的 spec 文件。"""
+    dag = tmp_path / "dag.yaml"
+    dag.write_text(dedent(dag_yaml).lstrip(), encoding="utf-8")
+    specs_dir = tmp_path / "specs"
+    specs_dir.mkdir(exist_ok=True)
+    # 简单粗暴：扫一遍 yaml 找出所有 spec: 路径，建空文件
+    import re
+    for m in re.finditer(r"spec:\s*(\S+)", dag.read_text()):
+        target = tmp_path / m.group(1)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            target.write_text(f"# stub spec for testing: {m.group(1)}\n")
+    return dag
+
+
+# ---------------------------------------------------------------------------
+# Helpers: 用 monkeypatch 替换 _run_one_task
+# ---------------------------------------------------------------------------
+
+
+def make_outcome(task_id: str, *, passed: bool) -> CoordinatorOutcome:
+    tr = TaskResult(task_id=task_id, success=passed, diff="x", files_changed=["f.py"])
+    vr = VerifyResult(
+        task_id=task_id,
+        passed=passed,
+        layers=[LayerResult(layer=VerifyLayer.STATIC, passed=passed, output="ok")],
+        feedback="ok" if passed else "fail",
+    )
+    return CoordinatorOutcome(
+        task_id=task_id,
+        passed=passed,
+        attempts=1,
+        last_task_result=tr,
+        last_verify_result=vr,
+        history=[(tr, vr)],
+    )
+
+
+def fake_run_factory(
+    behaviors: dict[str, bool],
+    started_order: list[str],
+) -> Callable[..., object]:
+    """生成一个能塞进 ParallelOrchestrator._run_one_task 的 fake。"""
+
+    async def fake(self, task_def, wm, lock_manager, sem, base_branch):  # type: ignore[no-untyped-def]
+        async with sem:
+            started_order.append(task_def.id)
+            await asyncio.sleep(0.01)  # 模拟工作
+            return make_outcome(task_def.id, passed=behaviors.get(task_def.id, True))
+
+    return fake
+
+
+# ---------------------------------------------------------------------------
+# tests
+# ---------------------------------------------------------------------------
+
+
+class TestParallelOrchestrator:
+    @pytest.mark.asyncio
+    async def test_all_pass_simple(
+        self, real_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        dag = write_workspace_with_specs(
+            ws_dir,
+            """
+            phases:
+              - name: A
+                type: serial
+                tasks: [t1]
+              - name: B
+                type: parallel
+                tasks: [t2, t3]
+            tasks:
+              t1: {spec: specs/t1.md}
+              t2: {spec: specs/t2.md, depends_on: [t1]}
+              t3: {spec: specs/t3.md, depends_on: [t1]}
+            shared_files: []
+            """,
+        )
+        ws = load_workspace(dag)
+
+        started: list[str] = []
+        monkeypatch.setattr(
+            ParallelOrchestrator,
+            "_run_one_task",
+            fake_run_factory({"t1": True, "t2": True, "t3": True}, started),
+        )
+
+        orch = ParallelOrchestrator(ws, real_repo, max_concurrency=4)
+        report = await orch.run()
+
+        assert report.all_passed
+        assert report.passed_count == 3
+        assert report.failed_count == 0
+        assert set(report.outcomes) == {"t1", "t2", "t3"}
+        # t1 必须先于 t2/t3 启动
+        assert started[0] == "t1"
+        assert set(started[1:]) == {"t2", "t3"}
+
+    @pytest.mark.asyncio
+    async def test_failure_propagates_to_dependents(
+        self, real_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        dag = write_workspace_with_specs(
+            ws_dir,
+            """
+            phases:
+              - name: A
+                type: serial
+                tasks: [t1]
+              - name: B
+                type: parallel
+                tasks: [t2, t3]
+            tasks:
+              t1: {spec: specs/t1.md}
+              t2: {spec: specs/t2.md, depends_on: [t1]}
+              t3: {spec: specs/t3.md, depends_on: [t1]}
+            shared_files: []
+            """,
+        )
+        ws = load_workspace(dag)
+
+        started: list[str] = []
+        monkeypatch.setattr(
+            ParallelOrchestrator,
+            "_run_one_task",
+            fake_run_factory({"t1": False}, started),
+        )
+
+        orch = ParallelOrchestrator(ws, real_repo, max_concurrency=4)
+        report = await orch.run()
+
+        # t1 失败，t2 t3 应被跳过
+        assert report.outcomes["t1"].passed is False
+        assert "t2" in report.skipped
+        assert "t3" in report.skipped
+        # t2 t3 没真正跑过
+        assert started == ["t1"]
+
+    @pytest.mark.asyncio
+    async def test_partial_failure_independent_branch_runs(
+        self, real_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """同波内 t2 失败不影响并行的 t3。"""
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        dag = write_workspace_with_specs(
+            ws_dir,
+            """
+            phases:
+              - name: A
+                type: parallel
+                tasks: [t2, t3]
+            tasks:
+              t2: {spec: specs/t2.md}
+              t3: {spec: specs/t3.md}
+            shared_files: []
+            """,
+        )
+        ws = load_workspace(dag)
+
+        started: list[str] = []
+        monkeypatch.setattr(
+            ParallelOrchestrator,
+            "_run_one_task",
+            fake_run_factory({"t2": False, "t3": True}, started),
+        )
+
+        orch = ParallelOrchestrator(ws, real_repo)
+        report = await orch.run()
+
+        assert report.outcomes["t2"].passed is False
+        assert report.outcomes["t3"].passed is True
+        assert report.skipped == ()
+
+    @pytest.mark.asyncio
+    async def test_concurrency_limit(
+        self, real_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """max_concurrency=1 时同波 task 也变成串行。"""
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        dag = write_workspace_with_specs(
+            ws_dir,
+            """
+            phases:
+              - name: A
+                type: parallel
+                tasks: [a, b, c]
+            tasks:
+              a: {spec: specs/a.md}
+              b: {spec: specs/b.md}
+              c: {spec: specs/c.md}
+            shared_files: []
+            """,
+        )
+        ws = load_workspace(dag)
+
+        # 用一个能记录"同时在跑"数量的 fake
+        in_flight = 0
+        max_seen = 0
+        lock = asyncio.Lock()
+
+        async def fake(self, task_def, wm, lock_manager, sem, base_branch):  # type: ignore[no-untyped-def]
+            nonlocal in_flight, max_seen
+            async with sem:
+                async with lock:
+                    in_flight += 1
+                    max_seen = max(max_seen, in_flight)
+                await asyncio.sleep(0.05)
+                async with lock:
+                    in_flight -= 1
+                return make_outcome(task_def.id, passed=True)
+
+        monkeypatch.setattr(ParallelOrchestrator, "_run_one_task", fake)
+
+        orch = ParallelOrchestrator(ws, real_repo, max_concurrency=1)
+        report = await orch.run()
+        assert report.all_passed
+        assert max_seen == 1, f"max_concurrency=1 not respected, peak={max_seen}"
+
+    @pytest.mark.asyncio
+    async def test_constructor_validation(self, real_repo: Path, tmp_path: Path) -> None:
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        dag = write_workspace_with_specs(
+            ws_dir,
+            """
+            phases:
+              - name: A
+                type: serial
+                tasks: [t1]
+            tasks:
+              t1: {spec: specs/t1.md}
+            shared_files: []
+            """,
+        )
+        ws = load_workspace(dag)
+
+        with pytest.raises(ValueError, match="absolute"):
+            ParallelOrchestrator(ws, Path("relative"))
+        with pytest.raises(ValueError, match="max_concurrency"):
+            ParallelOrchestrator(ws, real_repo, max_concurrency=0)

@@ -15,7 +15,7 @@ phases:
 
 tasks:
   pkg-base:
-    spec: specs/pkg-base.md
+    spec: ../specs/pkg-base.md
     depends_on: []
     files_owned:
       - "src/calc/__init__.py"
@@ -29,7 +29,7 @@ tasks:
       - "pytest -q tests/test_add.py"
 
   pkg-mul:
-    spec: specs/pkg-mul.md
+    spec: ../specs/pkg-mul.md
     depends_on: [pkg-base]
     files_owned:
       - "src/calc/mul.py"
@@ -43,7 +43,7 @@ tasks:
       - "pytest -q tests/test_mul.py"
 
   pkg-sub:
-    spec: specs/pkg-sub.md
+    spec: ../specs/pkg-sub.md
     depends_on: [pkg-base]
     files_owned:
       - "src/calc/sub.py"
