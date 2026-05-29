@@ -119,6 +119,90 @@ class TestVerifyTimeout:
         assert result.failed_layer == VerifyLayer.STATIC
 
 
+class TestSemanticLayer:
+    """M1.1 step 2: Layer 3 AI 语义 review。用 fake reviewer，不调真 LLM。"""
+
+    @pytest.mark.asyncio
+    async def test_no_reviewer_layer_skipped(self, tmp_path: Path) -> None:
+        """默认 reviewer=None → Layer 3 skipped。"""
+        task = _make_task(tmp_path, [])
+        result = await Verifier().verify(task, _make_success_result())
+        sem = next(layer for layer in result.layers if layer.layer == VerifyLayer.SEMANTIC)
+        assert sem.skipped
+        assert sem.passed
+
+    @pytest.mark.asyncio
+    async def test_reviewer_passes(self, tmp_path: Path) -> None:
+        from kiro_conduit.semantic import NoOpSemanticReviewer
+
+        task = _make_task(tmp_path, [])
+        verifier = Verifier(semantic_reviewer=NoOpSemanticReviewer())
+        result = await verifier.verify(task, _make_success_result())
+        assert result.passed
+        sem = next(layer for layer in result.layers if layer.layer == VerifyLayer.SEMANTIC)
+        assert sem.passed
+        assert not sem.skipped
+
+    @pytest.mark.asyncio
+    async def test_reviewer_fails(self, tmp_path: Path) -> None:
+        from kiro_conduit.semantic import ReviewContext, ReviewResult
+
+        class _AlwaysFail:
+            async def review(self, ctx: ReviewContext) -> ReviewResult:
+                return ReviewResult(passed=False, feedback="too sloppy")
+
+        task = _make_task(tmp_path, [])
+        verifier = Verifier(semantic_reviewer=_AlwaysFail())
+        result = await verifier.verify(task, _make_success_result())
+        assert not result.passed
+        assert result.failed_layer == VerifyLayer.SEMANTIC
+        assert "too sloppy" in result.feedback
+
+    @pytest.mark.asyncio
+    async def test_semantic_skipped_when_static_failed(self, tmp_path: Path) -> None:
+        """Earlier layer 挂了 Layer 3 不该跑。"""
+        from kiro_conduit.semantic import ReviewContext, ReviewResult
+
+        called = False
+
+        class _Spy:
+            async def review(self, ctx: ReviewContext) -> ReviewResult:
+                nonlocal called
+                called = True
+                return ReviewResult(passed=True, feedback="")
+
+        # static 层故意挂
+        task = _make_task(tmp_path, ["false"])
+        verifier = Verifier(semantic_reviewer=_Spy())
+        result = await verifier.verify(task, _make_success_result())
+        assert result.failed_layer == VerifyLayer.STATIC
+        sem = next(layer for layer in result.layers if layer.layer == VerifyLayer.SEMANTIC)
+        assert sem.skipped
+        assert not called  # reviewer 根本没被调
+
+    @pytest.mark.asyncio
+    async def test_semantic_failure_skips_contract(self, tmp_path: Path) -> None:
+        """Layer 3 挂了 Layer 4 也该 skip。"""
+        from kiro_conduit.semantic import ReviewContext, ReviewResult
+
+        class _AlwaysFail:
+            async def review(self, ctx: ReviewContext) -> ReviewResult:
+                return ReviewResult(passed=False, feedback="bad")
+
+        # 同时传 contract baseline
+        baseline = "def f() -> None: ...\n"
+        (tmp_path / "lib.py").write_text("def f() -> None: pass\n", encoding="utf-8")
+        task = _make_task(tmp_path, [])
+        verifier = Verifier(
+            semantic_reviewer=_AlwaysFail(),
+            contract_baselines={"lib.py": baseline},
+        )
+        result = await verifier.verify(task, _make_success_result())
+        assert result.failed_layer == VerifyLayer.SEMANTIC
+        contract = next(layer for layer in result.layers if layer.layer == VerifyLayer.CONTRACT)
+        assert contract.skipped
+
+
 class TestContractLayer:
     """M1.1: Layer 4 接口契约校验。"""
 

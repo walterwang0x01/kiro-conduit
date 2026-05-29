@@ -1,0 +1,158 @@
+"""单元测试：semantic.py 的 parse + reviewer 实现。"""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+import pytest
+
+from kiro_conduit.semantic import (
+    NoOpSemanticReviewer,
+    ReviewContext,
+    ReviewResult,
+    SemanticReviewer,
+    parse_review_response,
+    run_with_timeout,
+)
+
+
+def make_ctx(tmp_path: Path) -> ReviewContext:
+    return ReviewContext(
+        task_id="t1",
+        task_prompt="implement add",
+        diff="+def add(a, b): return a+b\n",
+        cwd=tmp_path,
+    )
+
+
+# ---------------------------------------------------------------------------
+# parse_review_response
+# ---------------------------------------------------------------------------
+
+
+class TestParseReviewResponse:
+    def test_pass_with_reason(self) -> None:
+        passed, fb = parse_review_response("PASS\nlooks good")
+        assert passed
+        assert fb == "looks good"
+
+    def test_fail_with_reason(self) -> None:
+        passed, fb = parse_review_response("FAIL\nfunc f returns wrong type")
+        assert not passed
+        assert "wrong type" in fb
+
+    def test_pass_only(self) -> None:
+        passed, fb = parse_review_response("PASS")
+        assert passed
+        assert "passed without comment" in fb
+
+    def test_fail_only(self) -> None:
+        passed, fb = parse_review_response("FAIL")
+        assert not passed
+        assert "failed without explanation" in fb
+
+    def test_lowercase_treated_as_uppercase(self) -> None:
+        passed, fb = parse_review_response("  fail \n  reason: bad")
+        assert not passed
+        assert "reason: bad" in fb
+
+    def test_keyword_in_middle_treated_as_verdict(self) -> None:
+        # 第一行没明确判定，但全文有 FAIL → 当 FAIL
+        passed, _ = parse_review_response("Looking at this... It seems FAIL because...")
+        assert not passed
+
+    def test_empty_response_pass_default(self) -> None:
+        passed, fb = parse_review_response("")
+        assert passed
+        assert "empty" in fb.lower() or "default" in fb.lower()
+
+    def test_no_keyword_at_all_pass_default(self) -> None:
+        passed, fb = parse_review_response("just rambling without verdict")
+        assert passed
+        # 原文应该被保留
+        assert "rambling" in fb
+
+
+# ---------------------------------------------------------------------------
+# NoOpSemanticReviewer
+# ---------------------------------------------------------------------------
+
+
+class TestNoOpSemanticReviewer:
+    @pytest.mark.asyncio
+    async def test_always_passes(self, tmp_path: Path) -> None:
+        result = await NoOpSemanticReviewer().review(make_ctx(tmp_path))
+        assert result.passed
+        assert "no-op" in result.feedback
+
+
+# ---------------------------------------------------------------------------
+# Protocol 兼容性
+# ---------------------------------------------------------------------------
+
+
+class TestProtocolCompat:
+    def test_noop_satisfies_protocol(self) -> None:
+        # 显式断言 NoOp 是 SemanticReviewer 的实现
+        reviewer: SemanticReviewer = NoOpSemanticReviewer()
+        # 静态可达就够；运行期 Protocol 默认不严格检查
+        assert reviewer is not None
+
+
+# ---------------------------------------------------------------------------
+# run_with_timeout
+# ---------------------------------------------------------------------------
+
+
+class _SlowReviewer:
+    """sleeps for 1s, then PASS."""
+
+    async def review(self, ctx: ReviewContext) -> ReviewResult:
+        await asyncio.sleep(1.0)
+        return ReviewResult(passed=True, feedback="slow but ok")
+
+
+class _RaisingReviewer:
+    async def review(self, ctx: ReviewContext) -> ReviewResult:
+        raise RuntimeError("boom")
+
+
+class _FailingReviewer:
+    async def review(self, ctx: ReviewContext) -> ReviewResult:
+        return ReviewResult(passed=False, feedback="nope")
+
+
+class TestRunWithTimeout:
+    @pytest.mark.asyncio
+    async def test_normal_completion(self, tmp_path: Path) -> None:
+        result = await run_with_timeout(
+            NoOpSemanticReviewer(), make_ctx(tmp_path), timeout=5.0
+        )
+        assert result.passed
+
+    @pytest.mark.asyncio
+    async def test_timeout_fails_open(self, tmp_path: Path) -> None:
+        result = await run_with_timeout(
+            _SlowReviewer(), make_ctx(tmp_path), timeout=0.1
+        )
+        assert result.passed  # fail-open
+        assert "timed out" in result.feedback
+
+    @pytest.mark.asyncio
+    async def test_failing_reviewer_passed_through(self, tmp_path: Path) -> None:
+        """reviewer 自己说 fail，run_with_timeout 不应该改成 PASS。"""
+        result = await run_with_timeout(
+            _FailingReviewer(), make_ctx(tmp_path), timeout=5.0
+        )
+        assert not result.passed
+        assert result.feedback == "nope"
+
+    @pytest.mark.asyncio
+    async def test_reviewer_exception_propagates(self, tmp_path: Path) -> None:
+        """run_with_timeout 只兜超时；其他异常该抛就抛——上层（Verifier 或 KiroReviewer
+        自己）决定是否做 fail-open 包装。"""
+        with pytest.raises(RuntimeError, match="boom"):
+            await run_with_timeout(
+                _RaisingReviewer(), make_ctx(tmp_path), timeout=5.0
+            )

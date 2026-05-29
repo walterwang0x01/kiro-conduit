@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from kiro_conduit.types import (
     LayerResult,
@@ -25,6 +26,9 @@ from kiro_conduit.types import (
     VerifyLayer,
     VerifyResult,
 )
+
+if TYPE_CHECKING:
+    from kiro_conduit.semantic import SemanticReviewer
 
 logger = logging.getLogger(__name__)
 
@@ -41,13 +45,24 @@ class Verifier:
         command_timeout: float = 120.0,
         *,
         contract_baselines: dict[str, str] | None = None,
+        semantic_reviewer: SemanticReviewer | None = None,
+        review_timeout: float = 180.0,
     ) -> None:
         """contract_baselines: file_path -> baseline_source。
         给 Layer 4 用：consumer 完成后，对比 worktree 里 file 的签名 vs baseline 的签名，
         要求**完全一致**（consumer 不能修改 owner 冻结的接口）。
+
+        semantic_reviewer: 可插拔的 Layer 3 后端。None 表示不跑 Layer 3（skipped）。
+        review_timeout: Layer 3 reviewer 的超时（秒），超时按 fail-open 处理。
         """
+        # 局部 import 避免循环依赖（roles/verifier <-> semantic）
+        from kiro_conduit.semantic import NoOpSemanticReviewer, SemanticReviewer  # noqa: F401
+
         self._command_timeout = command_timeout
         self._contract_baselines = contract_baselines or {}
+        # None 显式区别于 NoOp：None 时 Layer 3 完全 skipped，给个 NoOp 时也 skipped 但有 feedback
+        self._semantic_reviewer = semantic_reviewer
+        self._review_timeout = review_timeout
 
     async def verify(self, task: Task, result: TaskResult) -> VerifyResult:
         """跑验证流水线。"""
@@ -109,15 +124,31 @@ class Verifier:
                 all_passed = False
                 feedback_parts.append(f"[dynamic failed]\n{r2.output}")
 
-        # Layer 3 SEMANTIC：M1.1 暂占位
-        layers.append(
-            LayerResult(
-                layer=VerifyLayer.SEMANTIC,
-                passed=True,
-                output="(not implemented yet)",
-                skipped=True,
+        # Layer 3 SEMANTIC：跑可插拔的 reviewer
+        if not all_passed:
+            layers.append(
+                LayerResult(
+                    layer=VerifyLayer.SEMANTIC,
+                    passed=False,
+                    output="(skipped because earlier layer failed)",
+                    skipped=True,
+                )
             )
-        )
+        elif self._semantic_reviewer is None:
+            layers.append(
+                LayerResult(
+                    layer=VerifyLayer.SEMANTIC,
+                    passed=True,
+                    output="(no semantic reviewer configured)",
+                    skipped=True,
+                )
+            )
+        else:
+            r3 = await self._run_semantic_layer(task, result)
+            layers.append(r3)
+            if not r3.passed:
+                all_passed = False
+                feedback_parts.append(f"[semantic failed]\n{r3.output}")
 
         # Layer 4 CONTRACT：检查 consumer 没改 owner 冻结的接口
         if not all_passed:
@@ -151,6 +182,29 @@ class Verifier:
             passed=all_passed,
             layers=layers,
             feedback=feedback,
+        )
+
+    async def _run_semantic_layer(
+        self, task: Task, result: TaskResult
+    ) -> LayerResult:
+        """跑 self._semantic_reviewer 一次。reviewer 不能为 None（调用方保证）。"""
+        from kiro_conduit.semantic import ReviewContext, run_with_timeout
+
+        assert self._semantic_reviewer is not None
+        ctx = ReviewContext(
+            task_id=task.id,
+            task_prompt=task.prompt,
+            diff=result.diff,
+            cwd=task.cwd,
+        )
+        review = await run_with_timeout(
+            self._semantic_reviewer, ctx, timeout=self._review_timeout
+        )
+        return LayerResult(
+            layer=VerifyLayer.SEMANTIC,
+            passed=review.passed,
+            output=review.feedback,
+            skipped=False,
         )
 
     def _run_contract_layer(self, cwd: Path) -> LayerResult:

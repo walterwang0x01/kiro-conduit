@@ -21,6 +21,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from kiro_conduit.dag import TaskDef, Workspace, topological_waves
 from kiro_conduit.locks import SharedFileLockManager
@@ -29,6 +30,9 @@ from kiro_conduit.roles.implementor import Implementor
 from kiro_conduit.roles.verifier import Verifier
 from kiro_conduit.types import Task
 from kiro_conduit.worktree import WorktreeHandle, WorktreeManager
+
+if TYPE_CHECKING:
+    from kiro_conduit.semantic import SemanticReviewer
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,8 @@ class ParallelOrchestrator:
         max_attempts: int = 3,
         kiro_cli_path: str = "kiro-cli",
         prompt_timeout: float = 600.0,
+        semantic_reviewer: SemanticReviewer | None = None,
+        review_timeout: float = 180.0,
     ) -> None:
         if not base_repo.is_absolute():
             raise ValueError(f"base_repo must be absolute, got {base_repo}")
@@ -76,6 +82,8 @@ class ParallelOrchestrator:
         self._max_attempts = max_attempts
         self._kiro_cli_path = kiro_cli_path
         self._prompt_timeout = prompt_timeout
+        self._semantic_reviewer = semantic_reviewer
+        self._review_timeout = review_timeout
 
     async def run(self, base_branch: str = "main") -> ParallelRunReport:
         """跑全工作区：所有波次依次执行，波内并行。
@@ -233,7 +241,11 @@ class ParallelOrchestrator:
                     lock_manager=lock_manager,
                     shared_files=task_def.shared_files_to_modify,
                 ),
-                verifier=Verifier(contract_baselines=contract_baselines),
+                verifier=Verifier(
+                    contract_baselines=contract_baselines,
+                    semantic_reviewer=self._semantic_reviewer,
+                    review_timeout=self._review_timeout,
+                ),
                 max_attempts=self._max_attempts,
             )
             outcome = await coord.run_task(task)
