@@ -24,6 +24,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from kiro_conduit.dag import TaskDef, Workspace, topological_waves
+from kiro_conduit.events import (
+    EventBus,
+    RunCompleted,
+    TaskFinished,
+    TaskStarted,
+    WaveStarted,
+)
 from kiro_conduit.locks import SharedFileLockManager
 from kiro_conduit.roles.coordinator import Coordinator, CoordinatorOutcome
 from kiro_conduit.roles.implementor import Implementor
@@ -72,6 +79,7 @@ class ParallelOrchestrator:
         semantic_reviewer: SemanticReviewer | None = None,
         review_timeout: float = 180.0,
         model_routing: dict[str, str] | None = None,
+        event_bus: EventBus | None = None,
     ) -> None:
         if not base_repo.is_absolute():
             raise ValueError(f"base_repo must be absolute, got {base_repo}")
@@ -89,6 +97,7 @@ class ParallelOrchestrator:
         # 'reviewer' role 由 semantic_reviewer 自身构造参数控制，不在此覆盖。
         # 不在 routing 里的 role 用 None（= Kiro 默认模型）。
         self._model_routing = dict(model_routing or {})
+        self._event_bus = event_bus
 
     async def run(self, base_branch: str = "main") -> ParallelRunReport:
         """跑全工作区：所有波次依次执行，波内并行。
@@ -113,7 +122,9 @@ class ParallelOrchestrator:
         wm = WorktreeManager(self._base_repo)
         await wm.__aenter__()
         try:
-            lock_manager = SharedFileLockManager(self._workspace, self._base_repo)
+            lock_manager = SharedFileLockManager(
+                self._workspace, self._base_repo, event_bus=self._event_bus
+            )
             sem = asyncio.Semaphore(self._max_concurrency)
 
             for wave_idx, wave in enumerate(waves, start=1):
@@ -134,6 +145,14 @@ class ParallelOrchestrator:
                     len(waves),
                     wave_to_run,
                     wave_skipped or "[]",
+                )
+                self._publish(
+                    WaveStarted(
+                        wave_index=wave_idx,
+                        total_waves=len(waves),
+                        task_ids=tuple(wave_to_run),
+                        skipped_ids=tuple(wave_skipped),
+                    )
                 )
 
                 # 并行跑这波。把已完成 task 的 worktree handles 传给后续 task，
@@ -177,11 +196,19 @@ class ParallelOrchestrator:
             raise
 
         # 正常路径：不清理，留给调用方
-        return ParallelRunReport(
+        report = ParallelRunReport(
             outcomes=outcomes,
             skipped=tuple(skipped),
             handles=handles,
         )
+        self._publish(
+            RunCompleted(
+                passed_count=report.passed_count,
+                failed_count=report.failed_count,
+                skipped_count=len(report.skipped),
+            )
+        )
+        return report
 
     async def cleanup_handles(self, handles: dict[str, WorktreeHandle]) -> None:
         """显式清理 worktree（merge 完成后调用）。"""
@@ -190,6 +217,11 @@ class ParallelOrchestrator:
         await wm.cleanup_all()
 
     # ------------------------------------------------------------ internal
+
+    def _publish(self, event: object) -> None:
+        """转发事件给可选的 EventBus（None 时无操作）。"""
+        if self._event_bus is not None:
+            self._event_bus.publish(event)  # type: ignore[arg-type]
 
     def _partition_wave(
         self, wave: list[str], failed_tasks: set[str]
@@ -235,6 +267,13 @@ class ParallelOrchestrator:
         )
         async with sem:
             wt = await wm.create(task_def.id, base_branch=effective_base)
+            self._publish(
+                TaskStarted(
+                    task_id=task_def.id,
+                    attempt=1,
+                    max_attempts=self._max_attempts,
+                )
+            )
             task = self._materialize_task(task_def, wt.path)
             contract_baselines = self._collect_contract_baselines(
                 task_def.id, owner_handles
@@ -255,6 +294,18 @@ class ParallelOrchestrator:
                 max_attempts=self._max_attempts,
             )
             outcome = await coord.run_task(task)
+            self._publish(
+                TaskFinished(
+                    task_id=task_def.id,
+                    attempt=outcome.attempts,
+                    passed=outcome.passed,
+                    failed_layer=(
+                        str(outcome.last_verify_result.failed_layer)
+                        if outcome.last_verify_result.failed_layer
+                        else None
+                    ),
+                )
+            )
             # 如果这个 task 是某个 interface_lock 的 owner，跑成功后立刻 auto-commit
             # 让它的分支真的有这次产出，下游 consumer 才能基于它起 worktree
             if outcome.passed and self._is_interface_lock_owner(task_def.id):

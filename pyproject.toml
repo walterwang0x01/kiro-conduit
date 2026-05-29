@@ -26,9 +26,10 @@ classifiers = [
 ]
 
 # M0 PoC 阶段不引入第三方依赖；标准库 (asyncio + subprocess + json + dataclasses) 够用。
-# M1 起需要 YAML 解析 dag.yaml。后续按需要加：rich/textual (TUI), pytest-asyncio 等。
+# M1 起需要 YAML 解析 dag.yaml；M1.1 step 4 加 rich 做 TUI dashboard。
 dependencies = [
     "PyYAML>=6.0",
+    "rich>=13.0",
 ]
 
 [project.optional-dependencies]

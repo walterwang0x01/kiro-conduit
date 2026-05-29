@@ -23,8 +23,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from kiro_conduit.dag import SharedFilePolicy, Workspace
+
+if TYPE_CHECKING:
+    from kiro_conduit.events import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +60,12 @@ class _FileLock:
 class SharedFileLockManager:
     """所有共享文件的锁管理器。"""
 
-    def __init__(self, workspace: Workspace, base_repo: Path) -> None:
+    def __init__(
+        self,
+        workspace: Workspace,
+        base_repo: Path,
+        event_bus: EventBus | None = None,
+    ) -> None:
         if not base_repo.is_absolute():
             raise ValueError(f"base_repo must be absolute, got {base_repo}")
         self._workspace = workspace
@@ -67,6 +76,7 @@ class SharedFileLockManager:
         }
         self._locks_dir = base_repo / LOCKS_SUBDIR
         self._locks_dir.mkdir(parents=True, exist_ok=True)
+        self._event_bus = event_bus
 
     @asynccontextmanager
     async def acquire(self, file_path: str, task_id: str) -> AsyncIterator[None]:
@@ -91,6 +101,7 @@ class SharedFileLockManager:
             )
 
         if sf.policy == SharedFilePolicy.COORDINATOR_ONLY:
+            self._publish_lock(file_path, task_id, "rejected", sf.policy.value)
             raise LockError(
                 f"shared file {file_path!r} has policy 'coordinator-only'; "
                 f"task {task_id!r} cannot modify it"
@@ -130,6 +141,7 @@ class SharedFileLockManager:
                 file_path,
                 sf.policy.value,
             )
+            self._publish_lock(file_path, task_id, "acquired", sf.policy.value)
             yield
             if (
                 sf.policy == SharedFilePolicy.APPEND_ONLY
@@ -148,6 +160,7 @@ class SharedFileLockManager:
             self._remove_lock_file(file_path)
             flock.aio_lock.release()
             logger.info("[lock] task=%s released %s", task_id, file_path)
+            self._publish_lock(file_path, task_id, "released", sf.policy.value)
 
     def current_holder(self, file_path: str) -> str | None:
         """查询当前持锁者（无锁查询，仅用于调试 / dashboard）。"""
@@ -155,6 +168,22 @@ class SharedFileLockManager:
         return flock.holder if flock else None
 
     # ------------------------------------------------------------ internal
+
+    def _publish_lock(
+        self, file_path: str, task_id: str, action: str, policy: str
+    ) -> None:
+        if self._event_bus is None:
+            return
+        from kiro_conduit.events import LockEvent
+
+        self._event_bus.publish(
+            LockEvent(
+                file_path=file_path,
+                task_id=task_id,
+                action=action,
+                policy=policy,
+            )
+        )
 
     def _lock_file_path(self, shared_path: str) -> Path:
         # 把路径分隔符转义成 __，避免子目录搞乱 .kiro-conduit/locks/ 结构

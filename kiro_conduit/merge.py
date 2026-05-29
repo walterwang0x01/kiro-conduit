@@ -20,10 +20,14 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from kiro_conduit.dag import Workspace, topological_waves
 from kiro_conduit.git_utils import run_git
 from kiro_conduit.worktree import WorktreeHandle
+
+if TYPE_CHECKING:
+    from kiro_conduit.events import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +61,18 @@ class MergeOrchestrator:
         report = await mo.merge(handles, base_branch="main", commit_messages={...})
     """
 
-    def __init__(self, workspace: Workspace, base_repo: Path) -> None:
+    def __init__(
+        self,
+        workspace: Workspace,
+        base_repo: Path,
+        event_bus: EventBus | None = None,
+    ) -> None:
         if not base_repo.is_absolute():
             raise ValueError(f"base_repo must be absolute, got {base_repo}")
         self._workspace = workspace
         self._base_repo = base_repo
         self._git_lock = asyncio.Lock()
+        self._event_bus = event_bus
 
     async def merge(
         self,
@@ -104,19 +114,40 @@ class MergeOrchestrator:
                     continue
 
                 msg = commit_messages.get(tid, f"kiro-conduit: {tid}")
+                self._publish_merge_started(tid)
                 try:
                     await self._merge_one(handle, base_branch, msg)
                     results[tid] = TaskMergeResult(task_id=tid, merged=True)
+                    self._publish_merge_finished(tid, merged=True, error=None)
                 except MergeError as exc:
                     logger.error("[merge] %s failed: %s", tid, exc)
                     results[tid] = TaskMergeResult(
                         task_id=tid, merged=False, error=str(exc)
                     )
+                    self._publish_merge_finished(tid, merged=False, error=str(exc))
                     stopped_at = tid
 
         return MergeReport(results=results, stopped_at=stopped_at)
 
     # ------------------------------------------------------------ internal
+
+    def _publish_merge_started(self, task_id: str) -> None:
+        if self._event_bus is None:
+            return
+        from kiro_conduit.events import MergeStarted
+
+        self._event_bus.publish(MergeStarted(task_id=task_id))
+
+    def _publish_merge_finished(
+        self, task_id: str, merged: bool, error: str | None
+    ) -> None:
+        if self._event_bus is None:
+            return
+        from kiro_conduit.events import MergeFinished
+
+        self._event_bus.publish(
+            MergeFinished(task_id=task_id, merged=merged, error=error)
+        )
 
     def _merge_order(self, successful: set[str]) -> list[str]:
         """对成功的 task 求拓扑序（保留 dag.py 算出来的相对顺序）。"""

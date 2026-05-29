@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -28,10 +29,13 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from kiro_conduit.dag import load_workspace  # noqa: E402
+from kiro_conduit.dashboard import Dashboard  # noqa: E402
+from kiro_conduit.events import EventBus  # noqa: E402
 from kiro_conduit.merge import MergeOrchestrator  # noqa: E402
 from kiro_conduit.orchestrator import ParallelOrchestrator  # noqa: E402
 
 DAG_FILE_NAME = "m1-stub-first.yaml"
+USE_DASHBOARD = os.environ.get("KIRO_CONDUIT_DASHBOARD", "").lower() in ("1", "true", "yes")
 
 
 def setup_demo_workspace() -> tuple[Path, Path]:
@@ -82,11 +86,13 @@ async def main() -> int:
     print(f"  Tasks: {sorted(workspace.tasks)}")
     print()
 
+    bus = EventBus() if USE_DASHBOARD else None
     orchestrator = ParallelOrchestrator(
         workspace=workspace,
         base_repo=base_repo,
         max_concurrency=2,
         max_attempts=2,
+        event_bus=bus,
     )
 
     # ── Phase 1: parallel orchestration ────────────────────────────────────
@@ -94,7 +100,15 @@ async def main() -> int:
     print("Phase 1: ParallelOrchestrator (with stub-first interface lock)")
     print("=" * 70)
     t0 = time.monotonic()
-    report = await orchestrator.run()
+    if USE_DASHBOARD and bus is not None:
+        dashboard = Dashboard(workspace=workspace)
+        dashboard.attach(bus)
+        with dashboard.live():
+            report = await orchestrator.run()
+            # 给 dashboard 留点时间渲染最后一帧
+            await asyncio.sleep(0.5)
+    else:
+        report = await orchestrator.run()
     parallel_dur = time.monotonic() - t0
 
     print()
@@ -123,7 +137,7 @@ async def main() -> int:
     print("Phase 2: MergeOrchestrator")
     print("=" * 70)
     successful = {tid for tid, out in report.outcomes.items() if out.passed}
-    merger = MergeOrchestrator(workspace, base_repo)
+    merger = MergeOrchestrator(workspace, base_repo, event_bus=bus)
     t1 = time.monotonic()
     merge_report = await merger.merge(
         handles=report.handles,
