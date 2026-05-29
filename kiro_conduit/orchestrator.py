@@ -123,7 +123,8 @@ class ParallelOrchestrator:
                     wave_skipped or "[]",
                 )
 
-                # 并行跑这波
+                # 并行跑这波。把已完成 task 的 worktree handles 传给后续 task，
+                # 让 Layer 4 契约校验能从 owner worktree 读 baseline。
                 wave_results = await asyncio.gather(
                     *(
                         self._run_one_task(
@@ -132,6 +133,7 @@ class ParallelOrchestrator:
                             lock_manager,
                             sem,
                             base_branch,
+                            owner_handles=dict(handles),
                         )
                         for tid in wave_to_run
                     ),
@@ -200,15 +202,24 @@ class ParallelOrchestrator:
         lock_manager: SharedFileLockManager,
         sem: asyncio.Semaphore,
         base_branch: str,
+        owner_handles: dict[str, WorktreeHandle] | None = None,
     ) -> CoordinatorOutcome:
         """单 task 全流程：起 worktree → Implementor → Verifier → 重试。
 
         worktree 不在这里清理（merge 阶段还要用，由 ParallelOrchestrator.run
         的调用方决定何时清）。
+
+        owner_handles: 已完成的 owner task 的 worktree handles。如果 task_def 是
+        某个 interface_lock 的 consumer，从 owner 的 worktree 读 baseline 文件
+        传给 Verifier 做 Layer 4 契约校验。
         """
+        owner_handles = owner_handles or {}
         async with sem:
             wt = await wm.create(task_def.id, base_branch=base_branch)
             task = self._materialize_task(task_def, wt.path)
+            contract_baselines = self._collect_contract_baselines(
+                task_def.id, owner_handles
+            )
             coord = Coordinator(
                 implementor=_LockAwareImplementor(
                     kiro_cli_path=self._kiro_cli_path,
@@ -216,10 +227,49 @@ class ParallelOrchestrator:
                     lock_manager=lock_manager,
                     shared_files=task_def.shared_files_to_modify,
                 ),
-                verifier=Verifier(),
+                verifier=Verifier(contract_baselines=contract_baselines),
                 max_attempts=self._max_attempts,
             )
             return await coord.run_task(task)
+
+    def _collect_contract_baselines(
+        self,
+        consumer_id: str,
+        owner_handles: dict[str, WorktreeHandle],
+    ) -> dict[str, str]:
+        """给 consumer 收集"它被锁定的所有接口文件的 baseline 内容"。"""
+        out: dict[str, str] = {}
+        for phase in self._workspace.phases:
+            for lock in phase.interface_locks:
+                if consumer_id not in lock.consumers:
+                    continue
+                handle = owner_handles.get(lock.owner)
+                if handle is None:
+                    # owner 没跑成功（理论上不该到这里：consumer 跳过应在上层处理）
+                    logger.warning(
+                        "[orchestrator] consumer %s expects baseline from owner %s "
+                        "but owner has no worktree handle",
+                        consumer_id,
+                        lock.owner,
+                    )
+                    continue
+                file_path = handle.path / lock.file
+                if not file_path.is_file():
+                    logger.warning(
+                        "[orchestrator] consumer %s baseline file missing: %s",
+                        consumer_id,
+                        file_path,
+                    )
+                    continue
+                try:
+                    out[lock.file] = file_path.read_text(encoding="utf-8")
+                except OSError as exc:
+                    logger.warning(
+                        "[orchestrator] failed to read baseline %s: %s",
+                        file_path,
+                        exc,
+                    )
+        return out
 
     def _materialize_task(self, task_def: TaskDef, worktree_path: Path) -> Task:
         """TaskDef → Task：读 spec 文件填 prompt + 设 cwd 到 worktree。"""

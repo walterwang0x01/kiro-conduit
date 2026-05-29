@@ -36,8 +36,18 @@ _DYNAMIC_HINTS = ("pytest", "unittest", "python -m test", "npm test", "jest")
 class Verifier:
     """M0 Verifier：跑 shell 命令清单，分静态/动态两层。"""
 
-    def __init__(self, command_timeout: float = 120.0) -> None:
+    def __init__(
+        self,
+        command_timeout: float = 120.0,
+        *,
+        contract_baselines: dict[str, str] | None = None,
+    ) -> None:
+        """contract_baselines: file_path -> baseline_source。
+        给 Layer 4 用：consumer 完成后，对比 worktree 里 file 的签名 vs baseline 的签名，
+        要求**完全一致**（consumer 不能修改 owner 冻结的接口）。
+        """
         self._command_timeout = command_timeout
+        self._contract_baselines = contract_baselines or {}
 
     async def verify(self, task: Task, result: TaskResult) -> VerifyResult:
         """跑验证流水线。"""
@@ -99,16 +109,41 @@ class Verifier:
                 all_passed = False
                 feedback_parts.append(f"[dynamic failed]\n{r2.output}")
 
-        # Layer 3 / 4 占位（M0 不做）
-        for layer in (VerifyLayer.SEMANTIC, VerifyLayer.CONTRACT):
+        # Layer 3 SEMANTIC：M1.1 暂占位
+        layers.append(
+            LayerResult(
+                layer=VerifyLayer.SEMANTIC,
+                passed=True,
+                output="(not implemented yet)",
+                skipped=True,
+            )
+        )
+
+        # Layer 4 CONTRACT：检查 consumer 没改 owner 冻结的接口
+        if not all_passed:
             layers.append(
                 LayerResult(
-                    layer=layer,
-                    passed=True,
-                    output="(not implemented in M0)",
+                    layer=VerifyLayer.CONTRACT,
+                    passed=False,
+                    output="(skipped because earlier layer failed)",
                     skipped=True,
                 )
             )
+        elif not self._contract_baselines:
+            layers.append(
+                LayerResult(
+                    layer=VerifyLayer.CONTRACT,
+                    passed=True,
+                    output="(no interface contracts to check)",
+                    skipped=True,
+                )
+            )
+        else:
+            r4 = self._run_contract_layer(task.cwd)
+            layers.append(r4)
+            if not r4.passed:
+                all_passed = False
+                feedback_parts.append(f"[contract failed]\n{r4.output}")
 
         feedback = "\n\n".join(feedback_parts) if feedback_parts else "all checks passed"
         return VerifyResult(
@@ -116,6 +151,43 @@ class Verifier:
             passed=all_passed,
             layers=layers,
             feedback=feedback,
+        )
+
+    def _run_contract_layer(self, cwd: Path) -> LayerResult:
+        """对每个 baseline file 跑签名对比。任意一个不一致就 fail。"""
+        from kiro_conduit.contracts import diff_signatures, extract_signatures
+
+        violations: list[str] = []
+        for file_path, baseline_source in self._contract_baselines.items():
+            full = cwd / file_path
+            if not full.is_file():
+                violations.append(
+                    f"{file_path}: file missing in worktree (was the stub deleted?)"
+                )
+                continue
+            try:
+                current_source = full.read_text(encoding="utf-8")
+            except OSError as exc:
+                violations.append(f"{file_path}: read failed: {exc}")
+                continue
+            old_sigs = extract_signatures(baseline_source)
+            new_sigs = extract_signatures(current_source)
+            d = diff_signatures(old_sigs, new_sigs)
+            if not d.is_empty:
+                violations.append(f"{file_path}:\n{d.to_message()}")
+
+        if violations:
+            return LayerResult(
+                layer=VerifyLayer.CONTRACT,
+                passed=False,
+                output="\n\n".join(violations),
+                skipped=False,
+            )
+        return LayerResult(
+            layer=VerifyLayer.CONTRACT,
+            passed=True,
+            output=f"(checked {len(self._contract_baselines)} interface file(s))",
+            skipped=False,
         )
 
     @staticmethod

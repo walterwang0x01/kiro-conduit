@@ -117,3 +117,81 @@ class TestVerifyTimeout:
         assert not result.passed
         # 超时被归为 STATIC 失败（命令不含 pytest 等关键字）
         assert result.failed_layer == VerifyLayer.STATIC
+
+
+class TestContractLayer:
+    """M1.1: Layer 4 接口契约校验。"""
+
+    @pytest.mark.asyncio
+    async def test_no_baselines_layer_skipped(self, tmp_path: Path) -> None:
+        task = _make_task(tmp_path, [])
+        result = await Verifier().verify(task, _make_success_result())
+        contract_layer = next(
+            layer for layer in result.layers if layer.layer == VerifyLayer.CONTRACT
+        )
+        assert contract_layer.skipped
+        assert contract_layer.passed
+
+    @pytest.mark.asyncio
+    async def test_consumer_keeps_signature(self, tmp_path: Path) -> None:
+        baseline = "def add(a: int, b: int) -> int: ...\n"
+        # consumer 实现了函数体但保持签名
+        (tmp_path / "lib.py").write_text(
+            "def add(a: int, b: int) -> int:\n    return a + b\n",
+            encoding="utf-8",
+        )
+        task = _make_task(tmp_path, [])
+        verifier = Verifier(contract_baselines={"lib.py": baseline})
+        result = await verifier.verify(task, _make_success_result())
+        assert result.passed
+        contract_layer = next(
+            layer for layer in result.layers if layer.layer == VerifyLayer.CONTRACT
+        )
+        assert contract_layer.passed
+        assert not contract_layer.skipped
+
+    @pytest.mark.asyncio
+    async def test_consumer_changes_signature_fails(self, tmp_path: Path) -> None:
+        baseline = "def add(a: int, b: int) -> int: ...\n"
+        # consumer 偷加了一个参数
+        (tmp_path / "lib.py").write_text(
+            "def add(a: int, b: int, *, signed: bool = True) -> int:\n    return a + b\n",
+            encoding="utf-8",
+        )
+        task = _make_task(tmp_path, [])
+        verifier = Verifier(contract_baselines={"lib.py": baseline})
+        result = await verifier.verify(task, _make_success_result())
+        assert not result.passed
+        assert result.failed_layer == VerifyLayer.CONTRACT
+        assert "lib.py" in result.feedback
+
+    @pytest.mark.asyncio
+    async def test_baseline_file_missing_in_consumer(self, tmp_path: Path) -> None:
+        """consumer 把 stub 文件删了。"""
+        baseline = "def add(a: int, b: int) -> int: ...\n"
+        # 不创建 lib.py
+        task = _make_task(tmp_path, [])
+        verifier = Verifier(contract_baselines={"lib.py": baseline})
+        result = await verifier.verify(task, _make_success_result())
+        assert not result.passed
+        assert result.failed_layer == VerifyLayer.CONTRACT
+        assert "missing" in result.feedback.lower()
+
+    @pytest.mark.asyncio
+    async def test_contract_skipped_when_earlier_layer_fails(self, tmp_path: Path) -> None:
+        """earlier layer 挂了就不跑 contract。"""
+        baseline = "def add(a: int, b: int) -> int: ...\n"
+        (tmp_path / "lib.py").write_text(
+            "def add(a: int, b: int) -> int: return a + b\n",
+            encoding="utf-8",
+        )
+        # static 层故意挂
+        task = _make_task(tmp_path, ["false"])
+        verifier = Verifier(contract_baselines={"lib.py": baseline})
+        result = await verifier.verify(task, _make_success_result())
+        assert not result.passed
+        assert result.failed_layer == VerifyLayer.STATIC
+        contract_layer = next(
+            layer for layer in result.layers if layer.layer == VerifyLayer.CONTRACT
+        )
+        assert contract_layer.skipped

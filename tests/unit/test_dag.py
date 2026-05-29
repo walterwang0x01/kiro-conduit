@@ -456,3 +456,151 @@ class TestExampleDagFile:
         assert topological_waves(ws) == [["pkg-base"], ["pkg-mul", "pkg-sub"]]
         assert len(ws.shared_files) == 1
         assert ws.shared_files[0].policy == SharedFilePolicy.SINGLE_WRITER
+
+
+class TestInterfaceLock:
+    """M1.1 stub-first 接口锁定。"""
+
+    def test_basic_parse(self, tmp_path: Path) -> None:
+        body = """
+            phases:
+              - name: B
+                type: parallel
+                tasks: [stub, impl-a, impl-b]
+                interface_lock:
+                  - file: src/lib.py
+                    owner: stub
+                    consumers: [impl-a, impl-b]
+            tasks:
+              stub: {spec: s}
+              impl-a: {spec: s}
+              impl-b: {spec: s}
+            shared_files: []
+        """
+        ws = load_workspace(write_dag(tmp_path, body))
+        assert len(ws.phases[0].interface_locks) == 1
+        lock = ws.phases[0].interface_locks[0]
+        assert lock.file == "src/lib.py"
+        assert lock.owner == "stub"
+        assert lock.consumers == ("impl-a", "impl-b")
+        assert lock.mode == "stub-first"
+
+    def test_only_stub_first_supported_in_m1_1(self, tmp_path: Path) -> None:
+        body = """
+            phases:
+              - name: B
+                type: parallel
+                tasks: [stub, impl]
+                interface_lock:
+                  - file: src/lib.py
+                    owner: stub
+                    consumers: [impl]
+                    mode: somethingelse
+            tasks:
+              stub: {spec: s}
+              impl: {spec: s}
+            shared_files: []
+        """
+        with pytest.raises(DagError, match=r"not supported in M1\.1"):
+            load_workspace(write_dag(tmp_path, body))
+
+    def test_owner_in_consumers_rejected(self, tmp_path: Path) -> None:
+        body = """
+            phases:
+              - name: B
+                type: parallel
+                tasks: [stub, impl]
+                interface_lock:
+                  - file: src/lib.py
+                    owner: stub
+                    consumers: [stub, impl]
+            tasks:
+              stub: {spec: s}
+              impl: {spec: s}
+            shared_files: []
+        """
+        with pytest.raises(DagError, match="cannot also be in consumers"):
+            load_workspace(write_dag(tmp_path, body))
+
+    def test_owner_must_be_in_phase(self, tmp_path: Path) -> None:
+        body = """
+            phases:
+              - name: A
+                type: parallel
+                tasks: [t1]
+              - name: B
+                type: parallel
+                tasks: [stub, impl]
+                interface_lock:
+                  - file: src/lib.py
+                    owner: t1
+                    consumers: [impl]
+            tasks:
+              t1: {spec: s}
+              stub: {spec: s}
+              impl: {spec: s}
+            shared_files: []
+        """
+        with pytest.raises(DagError, match="owner 't1' is not a task in this phase"):
+            load_workspace(write_dag(tmp_path, body))
+
+    def test_serial_phase_with_interface_lock_rejected(self, tmp_path: Path) -> None:
+        body = """
+            phases:
+              - name: A
+                type: serial
+                tasks: [stub, impl]
+                interface_lock:
+                  - file: src/lib.py
+                    owner: stub
+                    consumers: [impl]
+            tasks:
+              stub: {spec: s}
+              impl: {spec: s}
+            shared_files: []
+        """
+        with pytest.raises(DagError, match="stub-first only makes sense for parallel phases"):
+            load_workspace(write_dag(tmp_path, body))
+
+    def test_interface_lock_makes_consumer_wait_for_owner(self, tmp_path: Path) -> None:
+        body = """
+            phases:
+              - name: B
+                type: parallel
+                tasks: [stub, impl-a, impl-b]
+                interface_lock:
+                  - file: src/lib.py
+                    owner: stub
+                    consumers: [impl-a, impl-b]
+            tasks:
+              stub: {spec: s}
+              impl-a: {spec: s}
+              impl-b: {spec: s}
+            shared_files: []
+        """
+        ws = load_workspace(write_dag(tmp_path, body))
+        # stub 应在自己的子波次先跑，impl-a 和 impl-b 在第二波并行
+        assert topological_waves(ws) == [["stub"], ["impl-a", "impl-b"]]
+
+    def test_owner_consumer_cycle_rejected(self, tmp_path: Path) -> None:
+        """同一 task 既是一个 lock 的 owner 又是另一个的 consumer → 死锁。"""
+        body = """
+            phases:
+              - name: B
+                type: parallel
+                tasks: [a, b, c]
+                interface_lock:
+                  - file: x.py
+                    owner: a
+                    consumers: [b]
+                  - file: y.py
+                    owner: b
+                    consumers: [a]
+            tasks:
+              a: {spec: s}
+              b: {spec: s}
+              c: {spec: s}
+            shared_files: []
+        """
+        with pytest.raises(DagError, match="both owner and consumer"):
+            load_workspace(write_dag(tmp_path, body))

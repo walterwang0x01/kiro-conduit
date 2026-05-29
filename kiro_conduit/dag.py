@@ -95,12 +95,34 @@ class TaskDef:
 
 
 @dataclass(frozen=True, slots=True)
+class InterfaceLock:
+    """接口锁定（stub-first）声明。
+
+    在并行 phase 启动前，先让 owner task 把 file 的接口 stub 写好并 commit。
+    consumers 各自从 stub commit 起 worktree，看到的接口已冻结，避免
+    "两个 task 都改同一文件结尾导致 merge 冲突"的语义问题。
+
+    M1.1 第一版语义：
+    - file: 路径相对 worktree 根（与 task.files_owned 同语义）
+    - owner: 必须是同 phase 里的 task id；它会在 phase 开始时单独跑一个子波次
+    - consumers: 同 phase 里的其他 task id；它们等 owner 完成后并行起来
+    - mode: 暂时只支持 stub-first（M1.1 范围）
+    """
+
+    file: str
+    owner: str
+    consumers: tuple[str, ...]
+    mode: str = "stub-first"
+
+
+@dataclass(frozen=True, slots=True)
 class PhaseDef:
     """phase 定义。"""
 
     name: str
     type: PhaseType
     task_ids: tuple[str, ...]
+    interface_locks: tuple[InterfaceLock, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,7 +224,86 @@ def _parse_phases(raw_phases: Any) -> tuple[PhaseDef, ...]:
         if len(set(task_ids)) != len(task_ids):
             raise DagError(f"phase {name!r} has duplicate task ids: {task_ids}")
 
-        out.append(PhaseDef(name=name, type=phase_type, task_ids=tuple(task_ids)))
+        interface_locks = _parse_interface_locks(name, item.get("interface_lock", []))
+
+        out.append(
+            PhaseDef(
+                name=name,
+                type=phase_type,
+                task_ids=tuple(task_ids),
+                interface_locks=interface_locks,
+            )
+        )
+    return tuple(out)
+
+
+def _parse_interface_locks(
+    phase_name: str, raw: Any
+) -> tuple[InterfaceLock, ...]:
+    if not isinstance(raw, list):
+        raise DagError(
+            f"phase {phase_name!r} interface_lock must be a list, "
+            f"got {type(raw).__name__}"
+        )
+    out: list[InterfaceLock] = []
+    seen_files: set[str] = set()
+    for idx, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise DagError(
+                f"phase {phase_name!r} interface_lock[{idx}] must be a mapping"
+            )
+        file_path = item.get("file")
+        if not isinstance(file_path, str) or not file_path:
+            raise DagError(
+                f"phase {phase_name!r} interface_lock[{idx}].file must be "
+                f"a non-empty string"
+            )
+        if file_path in seen_files:
+            raise DagError(
+                f"phase {phase_name!r} interface_lock has duplicate file: {file_path}"
+            )
+        seen_files.add(file_path)
+
+        owner = item.get("owner")
+        if not isinstance(owner, str) or not owner:
+            raise DagError(
+                f"phase {phase_name!r} interface_lock[{idx}].owner must be "
+                f"a non-empty string"
+            )
+        consumers = item.get("consumers", [])
+        if not isinstance(consumers, list) or not all(
+            isinstance(c, str) for c in consumers
+        ):
+            raise DagError(
+                f"phase {phase_name!r} interface_lock[{idx}].consumers must be "
+                f"a list of strings"
+            )
+        if not consumers:
+            raise DagError(
+                f"phase {phase_name!r} interface_lock[{idx}].consumers must "
+                f"not be empty"
+            )
+        if owner in consumers:
+            raise DagError(
+                f"phase {phase_name!r} interface_lock[{idx}]: owner {owner!r} "
+                f"cannot also be in consumers"
+            )
+
+        mode = item.get("mode", "stub-first")
+        if mode != "stub-first":
+            raise DagError(
+                f"phase {phase_name!r} interface_lock[{idx}].mode={mode!r} "
+                f"not supported in M1.1; only 'stub-first' is implemented"
+            )
+
+        out.append(
+            InterfaceLock(
+                file=file_path,
+                owner=owner,
+                consumers=tuple(consumers),
+                mode=mode,
+            )
+        )
     return tuple(out)
 
 
@@ -308,6 +409,7 @@ def validate(workspace: Workspace) -> None:
     _check_no_dependency_cycle(workspace)
     _check_files_owned_no_overlap(workspace)
     _check_shared_files_declared(workspace)
+    _check_interface_locks(workspace)
 
 
 def _check_phase_tasks_exist(workspace: Workspace) -> None:
@@ -389,6 +491,49 @@ def _check_shared_files_declared(workspace: Workspace) -> None:
                 )
 
 
+def _check_interface_locks(workspace: Workspace) -> None:
+    """phase.interface_locks 的语义校验：
+
+    - phase 必须是 parallel（stub-first 只在并行 phase 里有意义）
+    - owner / consumers 必须都在该 phase 的 task_ids 里
+    - owner 不能同时是另一个 lock 的 consumer（避免循环）
+    - 同一文件不能被两个 lock 声明（_parse 已查，validate 这里不重复）
+    """
+    for phase in workspace.phases:
+        if not phase.interface_locks:
+            continue
+        if phase.type != PhaseType.PARALLEL:
+            raise DagError(
+                f"phase {phase.name!r} has interface_lock but type is "
+                f"{phase.type.value!r}; stub-first only makes sense for parallel phases"
+            )
+        phase_tids = set(phase.task_ids)
+        for lock in phase.interface_locks:
+            if lock.owner not in phase_tids:
+                raise DagError(
+                    f"phase {phase.name!r} interface_lock owner {lock.owner!r} "
+                    f"is not a task in this phase"
+                )
+            for c in lock.consumers:
+                if c not in phase_tids:
+                    raise DagError(
+                        f"phase {phase.name!r} interface_lock consumer {c!r} "
+                        f"is not a task in this phase"
+                    )
+        # 检查同一 owner 不被另一个 lock 当 consumer
+        all_owners = {lock.owner for lock in phase.interface_locks}
+        all_consumers: set[str] = set()
+        for lock in phase.interface_locks:
+            all_consumers.update(lock.consumers)
+        cross = all_owners & all_consumers
+        if cross:
+            raise DagError(
+                f"phase {phase.name!r}: task(s) {sorted(cross)} are both "
+                f"owner and consumer in different interface_locks; this would "
+                f"create a scheduling deadlock"
+            )
+
+
 # ---------------------------------------------------------------------------
 # 拓扑波次：每个波次内的 task 可以并行执行
 # ---------------------------------------------------------------------------
@@ -424,6 +569,11 @@ def topological_waves(workspace: Workspace) -> list[list[str]]:
             for i, tid in enumerate(phase.task_ids):
                 for prev in phase.task_ids[:i]:
                     effective_deps[tid].add(prev)
+        # phase 内 interface_lock：consumer depends_on owner
+        # 这把 stub-first 编排转成普通的拓扑依赖，自然落到下面的层次化排序
+        for lock in phase.interface_locks:
+            for c in lock.consumers:
+                effective_deps[c].add(lock.owner)
         prior_phase_tasks.extend(phase.task_ids)
 
     # 层次化拓扑排序：每一轮取出所有 indeg=0 的，作为一个波次

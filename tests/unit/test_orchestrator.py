@@ -92,7 +92,7 @@ def fake_run_factory(
 ) -> Callable[..., object]:
     """生成一个能塞进 ParallelOrchestrator._run_one_task 的 fake。"""
 
-    async def fake(self, task_def, wm, lock_manager, sem, base_branch):  # type: ignore[no-untyped-def]
+    async def fake(self, task_def, wm, lock_manager, sem, base_branch, owner_handles=None):  # type: ignore[no-untyped-def]
         async with sem:
             started_order.append(task_def.id)
             await asyncio.sleep(0.01)  # 模拟工作
@@ -256,7 +256,7 @@ class TestParallelOrchestrator:
         max_seen = 0
         lock = asyncio.Lock()
 
-        async def fake(self, task_def, wm, lock_manager, sem, base_branch):  # type: ignore[no-untyped-def]
+        async def fake(self, task_def, wm, lock_manager, sem, base_branch, owner_handles=None):  # type: ignore[no-untyped-def]
             nonlocal in_flight, max_seen
             async with sem:
                 async with lock:
