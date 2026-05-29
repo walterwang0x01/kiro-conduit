@@ -1,0 +1,77 @@
+# M1.1 demo workspace：stub-first 接口锁定。
+#
+# 期望波次：
+#   wave 1: [pkg-base]                  # phase A: 写 calc/add.py
+#   wave 2: [pkg-stub]                  # phase B: 由 interface_lock 衍生的 owner 子波次
+#   wave 3: [pkg-mul, pkg-sub]          # phase B: consumers 并行
+#
+# 不再有"两 task 都改 __init__.py"的冲突——pkg-stub 一次写完，
+# pkg-mul / pkg-sub 只动各自的实现文件，Verifier Layer 4 拒绝任何篡改。
+phases:
+  - name: A
+    type: serial
+    tasks: [pkg-base]
+  - name: B
+    type: parallel
+    tasks: [pkg-stub, pkg-mul, pkg-sub]
+    interface_lock:
+      - file: "src/calc/__init__.py"
+        owner: pkg-stub
+        consumers: [pkg-mul, pkg-sub]
+        mode: stub-first
+
+tasks:
+  pkg-base:
+    spec: ../specs/pkg-base.md
+    depends_on: []
+    files_owned:
+      - "src/calc/add.py"
+      - "tests/test_add.py"
+    shared_files_to_modify: []
+    max_lines: 200
+    max_files: 5
+    acceptance:
+      - "python3 -m py_compile src/calc/add.py"
+      - "pytest -q tests/test_add.py"
+
+  # owner：把 __init__.py 一次性写到位（含 mul / sub 的 import）。
+  # 之后 mul / sub 实现完，main 上 __init__.py 已经能 import 通了。
+  pkg-stub:
+    spec: ../specs/pkg-stub.md
+    depends_on: [pkg-base]
+    files_owned:
+      - "src/calc/__init__.py"
+    shared_files_to_modify: []
+    max_lines: 100
+    max_files: 2
+    acceptance:
+      - "python3 -m py_compile src/calc/__init__.py"
+
+  pkg-mul:
+    spec: ../specs/pkg-mul-stub-first.md
+    depends_on: [pkg-base]
+    files_owned:
+      - "src/calc/mul.py"
+      - "tests/test_mul.py"
+    shared_files_to_modify: []
+    max_lines: 200
+    max_files: 5
+    acceptance:
+      - "python3 -m py_compile src/calc/mul.py"
+      - "pytest -q tests/test_mul.py"
+
+  pkg-sub:
+    spec: ../specs/pkg-sub-stub-first.md
+    depends_on: [pkg-base]
+    files_owned:
+      - "src/calc/sub.py"
+      - "tests/test_sub.py"
+    shared_files_to_modify: []
+    max_lines: 200
+    max_files: 5
+    acceptance:
+      - "python3 -m py_compile src/calc/sub.py"
+      - "pytest -q tests/test_sub.py"
+
+# stub-first 之后不需要 shared_files 锁了——consumer 不允许改任何共享文件。
+shared_files: []

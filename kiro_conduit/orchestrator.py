@@ -209,13 +209,19 @@ class ParallelOrchestrator:
         worktree 不在这里清理（merge 阶段还要用，由 ParallelOrchestrator.run
         的调用方决定何时清）。
 
-        owner_handles: 已完成的 owner task 的 worktree handles。如果 task_def 是
-        某个 interface_lock 的 consumer，从 owner 的 worktree 读 baseline 文件
-        传给 Verifier 做 Layer 4 契约校验。
+        owner_handles: 已完成的 owner task 的 worktree handles。
+        - 如果 task_def 是某个 interface_lock 的 consumer，**从 owner 分支起 worktree**，
+          这样 consumer 一开始就能看到 owner 写的 stub 文件。
+        - 同时把 owner 的 baseline 文件传给 Verifier 做 Layer 4 契约校验。
         """
         owner_handles = owner_handles or {}
+        # 选 base：consumer 默认基于第一个 owner 的分支（M1.1 简化：每个 consumer
+        # 通常只在一个 lock 里，多 owner 的复杂场景留给 M1.2）
+        effective_base = self._effective_base_branch(
+            task_def.id, owner_handles, base_branch
+        )
         async with sem:
-            wt = await wm.create(task_def.id, base_branch=base_branch)
+            wt = await wm.create(task_def.id, base_branch=effective_base)
             task = self._materialize_task(task_def, wt.path)
             contract_baselines = self._collect_contract_baselines(
                 task_def.id, owner_handles
@@ -230,7 +236,82 @@ class ParallelOrchestrator:
                 verifier=Verifier(contract_baselines=contract_baselines),
                 max_attempts=self._max_attempts,
             )
-            return await coord.run_task(task)
+            outcome = await coord.run_task(task)
+            # 如果这个 task 是某个 interface_lock 的 owner，跑成功后立刻 auto-commit
+            # 让它的分支真的有这次产出，下游 consumer 才能基于它起 worktree
+            if outcome.passed and self._is_interface_lock_owner(task_def.id):
+                await self._auto_commit_owner(wt)
+            return outcome
+
+    def _effective_base_branch(
+        self,
+        task_id: str,
+        owner_handles: dict[str, WorktreeHandle],
+        default_base: str,
+    ) -> str:
+        """如果 task_id 是 consumer，返回 owner 的分支；否则用默认 base。"""
+        for phase in self._workspace.phases:
+            for lock in phase.interface_locks:
+                if task_id in lock.consumers and lock.owner in owner_handles:
+                    return owner_handles[lock.owner].branch
+        return default_base
+
+    def _is_interface_lock_owner(self, task_id: str) -> bool:
+        for phase in self._workspace.phases:
+            for lock in phase.interface_locks:
+                if task_id == lock.owner:
+                    return True
+        return False
+
+    async def _auto_commit_owner(self, wt: WorktreeHandle) -> None:
+        """owner task 跑成功后自动 commit，让 consumer 能基于此分支起 worktree。"""
+        from kiro_conduit.git_utils import run_git
+
+        # add 全部（用 :(exclude) 排除 __pycache__ 等噪音）
+        code, _, stderr = await run_git(
+            wt.path,
+            [
+                "add", "-A", "--",
+                ".",
+                ":(exclude)__pycache__",
+                ":(exclude)**/__pycache__",
+                ":(exclude)*.pyc",
+                ":(exclude)**/*.pyc",
+                ":(exclude).pytest_cache",
+                ":(exclude)**/.pytest_cache",
+            ],
+        )
+        if code != 0:
+            logger.warning(
+                "[orchestrator] auto-commit add failed for owner %s: %s",
+                wt.task_id,
+                stderr.strip(),
+            )
+            return
+        # 检查有没有改动
+        code, stdout, _ = await run_git(wt.path, ["diff", "--cached", "--name-only"])
+        if not stdout.strip():
+            logger.debug(
+                "[orchestrator] owner %s has no staged changes, skip auto-commit",
+                wt.task_id,
+            )
+            return
+        code, _, stderr = await run_git(
+            wt.path,
+            ["commit", "-m", f"kiro-conduit owner stub: {wt.task_id}"],
+        )
+        if code != 0:
+            logger.warning(
+                "[orchestrator] auto-commit failed for owner %s: %s",
+                wt.task_id,
+                stderr.strip(),
+            )
+            return
+        logger.info(
+            "[orchestrator] auto-committed owner %s on branch %s",
+            wt.task_id,
+            wt.branch,
+        )
 
     def _collect_contract_baselines(
         self,
