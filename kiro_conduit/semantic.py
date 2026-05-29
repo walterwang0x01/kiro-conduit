@@ -126,10 +126,12 @@ class KiroSemanticReviewer:
         kiro_cli_path: str = "kiro-cli",
         timeout: float = 180.0,
         max_diff_chars: int = 30000,
+        model: str | None = None,
     ) -> None:
         self._kiro_cli_path = kiro_cli_path
         self._timeout = timeout
         self._max_diff_chars = max_diff_chars
+        self._model = model
 
     async def review(self, ctx: ReviewContext) -> ReviewResult:
         # 截短 diff 防止 prompt 爆炸（M1.1 简单粗暴；M1.2 可改成 chunk 分批）
@@ -178,6 +180,7 @@ class KiroSemanticReviewer:
             kiro_cli_path=self._kiro_cli_path,
             cwd=cwd,
             response_timeout=self._timeout,
+            model=self._model,
         )
         chunks: list[str] = []
         async with await AcpClient.spawn(config) as client:

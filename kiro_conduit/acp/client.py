@@ -69,6 +69,9 @@ class AcpClientConfig:
     # "allow_once" / "allow_always" / "reject_once" / "reject_always"
     # kiro-conduit 默认全自动 allow_once，因为编排器跑在无人干预场景
     permission_policy: str = "allow_once"
+    # 启动时通过 --model 指定模型（None = 用 Kiro 默认）。
+    # 用于 BYOA 路由：Implementor 跟 KiroSemanticReviewer 可以选不同模型。
+    model: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +106,8 @@ class AcpClient:
             env.update(cfg.extra_env)
 
         cmd = [cfg.kiro_cli_path, *cfg.extra_args]
+        if cfg.model:
+            cmd.extend(["--model", cfg.model])
         logger.debug("spawning ACP subprocess: %s (cwd=%s)", cmd, cfg.cwd)
         proc = await asyncio.create_subprocess_exec(
             *cmd,

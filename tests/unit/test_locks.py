@@ -119,3 +119,88 @@ class TestConstructor:
         ws = _make_workspace_with_shared_file(tmp_path)
         SharedFileLockManager(ws, tmp_path)
         assert (tmp_path / ".kiro-conduit" / "locks").is_dir()
+
+
+# --- M1.1 step 3: 新 policy 测试 -------------------------------------------
+
+
+def _make_workspace_with_policy(tmp_path: Path, policy: str):
+    body = dedent(
+        f"""
+        phases:
+          - name: A
+            type: parallel
+            tasks: [t1]
+        tasks:
+          t1:
+            spec: s
+            shared_files_to_modify: ["src/shared.py"]
+        shared_files:
+          - path: src/shared.py
+            policy: {policy}
+        """
+    ).lstrip()
+    p = tmp_path / "dag.yaml"
+    p.write_text(body, encoding="utf-8")
+    return load_workspace(p)
+
+
+class TestAppendOnlyPolicy:
+    @pytest.mark.asyncio
+    async def test_append_passes(self, tmp_path: Path) -> None:
+        ws = _make_workspace_with_policy(tmp_path, "append-only")
+        lm = SharedFileLockManager(ws, tmp_path)
+
+        # 文件提前有内容
+        target = tmp_path / "src" / "shared.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("original\n", encoding="utf-8")
+
+        async with lm.acquire("src/shared.py", "t1"):
+            target.write_text("original\nappended\n", encoding="utf-8")
+        # 不抛 = 通过
+
+    @pytest.mark.asyncio
+    async def test_append_violation_rejected(self, tmp_path: Path) -> None:
+        ws = _make_workspace_with_policy(tmp_path, "append-only")
+        lm = SharedFileLockManager(ws, tmp_path)
+
+        target = tmp_path / "src" / "shared.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("original\n", encoding="utf-8")
+
+        with pytest.raises(LockError, match="append-only violation"):
+            async with lm.acquire("src/shared.py", "t1"):
+                # 改了已有内容（不是追加）
+                target.write_text("DIFFERENT\n", encoding="utf-8")
+
+    @pytest.mark.asyncio
+    async def test_append_two_tasks_serialize(self, tmp_path: Path) -> None:
+        """append-only 仍然互斥（防 write 内部交错），但每个写都通过 prefix 校验。"""
+        ws = _make_workspace_with_policy(tmp_path, "append-only")
+        lm = SharedFileLockManager(ws, tmp_path)
+
+        target = tmp_path / "src" / "shared.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("base\n", encoding="utf-8")
+
+        async def append(task_id: str, line: str) -> None:
+            async with lm.acquire("src/shared.py", task_id):
+                cur = target.read_text(encoding="utf-8")
+                target.write_text(cur + line + "\n", encoding="utf-8")
+
+        await asyncio.gather(append("t1", "a"), append("t2", "b"))
+        content = target.read_text(encoding="utf-8")
+        assert content.startswith("base\n")
+        assert "a" in content and "b" in content
+
+
+class TestCoordinatorOnlyPolicy:
+    @pytest.mark.asyncio
+    async def test_task_acquire_rejected(self, tmp_path: Path) -> None:
+        ws = _make_workspace_with_policy(tmp_path, "coordinator-only")
+        lm = SharedFileLockManager(ws, tmp_path)
+
+        with pytest.raises(LockError, match="coordinator-only"):
+            async with lm.acquire("src/shared.py", "t1"):
+                pass

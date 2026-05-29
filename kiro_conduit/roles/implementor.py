@@ -36,9 +36,11 @@ class Implementor:
         self,
         kiro_cli_path: str = "kiro-cli",
         prompt_timeout: float = 600.0,
+        model: str | None = None,
     ) -> None:
         self._kiro_cli_path = kiro_cli_path
         self._prompt_timeout = prompt_timeout
+        self._model = model
 
     async def run(self, task: Task) -> TaskResult:
         """执行任务，返回结果。"""
@@ -47,6 +49,7 @@ class Implementor:
             kiro_cli_path=self._kiro_cli_path,
             cwd=task.cwd,
             response_timeout=self._prompt_timeout,
+            model=self._model,
         )
         transcript_parts: list[str] = []
         try:

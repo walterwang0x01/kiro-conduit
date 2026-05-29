@@ -71,6 +71,7 @@ class ParallelOrchestrator:
         prompt_timeout: float = 600.0,
         semantic_reviewer: SemanticReviewer | None = None,
         review_timeout: float = 180.0,
+        model_routing: dict[str, str] | None = None,
     ) -> None:
         if not base_repo.is_absolute():
             raise ValueError(f"base_repo must be absolute, got {base_repo}")
@@ -84,6 +85,10 @@ class ParallelOrchestrator:
         self._prompt_timeout = prompt_timeout
         self._semantic_reviewer = semantic_reviewer
         self._review_timeout = review_timeout
+        # BYOA 模型路由：role 名 → model id。已知 role：'implementor'。
+        # 'reviewer' role 由 semantic_reviewer 自身构造参数控制，不在此覆盖。
+        # 不在 routing 里的 role 用 None（= Kiro 默认模型）。
+        self._model_routing = dict(model_routing or {})
 
     async def run(self, base_branch: str = "main") -> ParallelRunReport:
         """跑全工作区：所有波次依次执行，波内并行。
@@ -240,6 +245,7 @@ class ParallelOrchestrator:
                     prompt_timeout=self._prompt_timeout,
                     lock_manager=lock_manager,
                     shared_files=task_def.shared_files_to_modify,
+                    model=self._model_routing.get("implementor"),
                 ),
                 verifier=Verifier(
                     contract_baselines=contract_baselines,
@@ -430,8 +436,13 @@ class _LockAwareImplementor(Implementor):
         prompt_timeout: float,
         lock_manager: SharedFileLockManager,
         shared_files: tuple[str, ...],
+        model: str | None = None,
     ) -> None:
-        super().__init__(kiro_cli_path=kiro_cli_path, prompt_timeout=prompt_timeout)
+        super().__init__(
+            kiro_cli_path=kiro_cli_path,
+            prompt_timeout=prompt_timeout,
+            model=model,
+        )
         self._lock_manager = lock_manager
         self._shared_files = shared_files
 

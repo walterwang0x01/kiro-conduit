@@ -386,12 +386,7 @@ def _parse_shared_files(raw_sf: Any) -> tuple[SharedFileSpec, ...]:
                 f"shared_files[{idx}].policy must be one of "
                 f"{[p.value for p in SharedFilePolicy]}, got {policy_raw!r}"
             ) from exc
-        # M1.0 限制
-        if policy != SharedFilePolicy.SINGLE_WRITER:
-            raise DagError(
-                f"shared_files[{idx}].policy={policy.value!r} not supported in M1.0; "
-                "only 'single-writer' is implemented"
-            )
+        # M1.1 step 3 起所有 3 种 policy 都支持
         out.append(SharedFileSpec(path=path, policy=policy))
     return tuple(out)
 

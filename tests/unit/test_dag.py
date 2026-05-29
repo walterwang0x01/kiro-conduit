@@ -162,20 +162,30 @@ class TestParseSharedFiles:
         with pytest.raises(DagError, match="policy must be one of"):
             load_workspace(write_dag(tmp_path, body))
 
-    def test_m1_0_only_single_writer(self, tmp_path: Path) -> None:
+    def test_m1_1_accepts_all_policies(self, tmp_path: Path) -> None:
+        """M1.1 step 3 起，append-only / coordinator-only / single-writer 三种都接受。"""
+        from kiro_conduit.dag import SharedFilePolicy
+
         body = """
             phases:
               - name: A
                 type: serial
                 tasks: [t1]
             tasks:
-              t1: {spec: s}
+              t1: {spec: s, shared_files_to_modify: [src/a.py, src/b.py, src/c.py]}
             shared_files:
-              - path: src/x.py
+              - path: src/a.py
                 policy: append-only
+              - path: src/b.py
+                policy: coordinator-only
+              - path: src/c.py
+                policy: single-writer
         """
-        with pytest.raises(DagError, match=r"not supported in M1\.0"):
-            load_workspace(write_dag(tmp_path, body))
+        ws = load_workspace(write_dag(tmp_path, body))
+        policies = {sf.path: sf.policy for sf in ws.shared_files}
+        assert policies["src/a.py"] == SharedFilePolicy.APPEND_ONLY
+        assert policies["src/b.py"] == SharedFilePolicy.COORDINATOR_ONLY
+        assert policies["src/c.py"] == SharedFilePolicy.SINGLE_WRITER
 
     def test_duplicate_shared_path(self, tmp_path: Path) -> None:
         body = """

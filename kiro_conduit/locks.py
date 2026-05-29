@@ -72,8 +72,16 @@ class SharedFileLockManager:
     async def acquire(self, file_path: str, task_id: str) -> AsyncIterator[None]:
         """获取共享文件的锁。退出 context 时自动释放。
 
-        如果 file_path 没在 dag 的 shared_files 声明，抛 LockError——这是配置错误，
-        不能默默放过。
+        三种 policy 行为（M1.1 step 3）：
+
+        - SINGLE_WRITER: 互斥锁，同时只能一个 task 持有
+        - APPEND_ONLY: 退出 context 时校验只追加（前缀字节没变）；
+          实现层面仍是互斥（防止两个 append 内部交错），但语义上允许多个 task 各自
+          先后追加
+        - COORDINATOR_ONLY: task 不能持锁，直接抛 LockError——只有 Coordinator
+          自己（不通过 acquire）才能改
+
+        如果 file_path 没在 dag 的 shared_files 声明，抛 LockError——配置错误。
         """
         sf = self._workspace.shared_file(file_path)
         if sf is None:
@@ -81,26 +89,60 @@ class SharedFileLockManager:
                 f"file {file_path!r} is not a declared shared_file; "
                 "task should not be requesting a lock on it"
             )
-        if sf.policy != SharedFilePolicy.SINGLE_WRITER:
-            # M1.0 限制
+
+        if sf.policy == SharedFilePolicy.COORDINATOR_ONLY:
             raise LockError(
-                f"shared file {file_path!r} has policy {sf.policy.value!r}, "
-                "only single-writer is supported in M1.0"
+                f"shared file {file_path!r} has policy 'coordinator-only'; "
+                f"task {task_id!r} cannot modify it"
+            )
+
+        if sf.policy not in (
+            SharedFilePolicy.SINGLE_WRITER,
+            SharedFilePolicy.APPEND_ONLY,
+        ):
+            raise LockError(
+                f"unknown policy {sf.policy!r} for {file_path!r}"
             )
 
         flock = self._locks[file_path]
         logger.debug(
-            "[lock] task=%s acquiring %s (current holder=%s)",
+            "[lock] task=%s acquiring %s (policy=%s, current holder=%s)",
             task_id,
             file_path,
+            sf.policy.value,
             flock.holder,
         )
+
+        # 两种 policy 都用同一个 asyncio.Lock 互斥（防 write 交错）
+        # APPEND_ONLY 多了一个退出时的前缀校验
+        full_path = self._base_repo / file_path
+        old_content: bytes | None = None
+        if sf.policy == SharedFilePolicy.APPEND_ONLY:
+            old_content = full_path.read_bytes() if full_path.is_file() else b""
+
         await flock.aio_lock.acquire()
         try:
             flock.holder = task_id
             self._write_lock_file(file_path, task_id)
-            logger.info("[lock] task=%s acquired %s", task_id, file_path)
+            logger.info(
+                "[lock] task=%s acquired %s (%s)",
+                task_id,
+                file_path,
+                sf.policy.value,
+            )
             yield
+            if (
+                sf.policy == SharedFilePolicy.APPEND_ONLY
+                and old_content is not None
+            ):
+                new_content = (
+                    full_path.read_bytes() if full_path.is_file() else b""
+                )
+                if not new_content.startswith(old_content):
+                    raise LockError(
+                        f"append-only violation on {file_path!r} by task "
+                        f"{task_id!r}: existing content was modified"
+                    )
         finally:
             flock.holder = None
             self._remove_lock_file(file_path)
