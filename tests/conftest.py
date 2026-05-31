@@ -108,6 +108,10 @@ def tmp_git_repo(tmp_path: Path) -> Path:
         )
 
     _git("init", "-b", "main")
+    # 在 repo 级别设置身份，避免依赖全局 git config（CI runner 上没有）——
+    # 否则测试里在 worktree 内 commit 会因 "unknown identity" 静默失败。
+    _git("config", "user.email", "test@example.com")
+    _git("config", "user.name", "test")
     (tmp_path / "README.md").write_text("# test repo\n")
     _git("add", ".")
     _git("commit", "-m", "initial")
