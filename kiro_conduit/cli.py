@@ -22,8 +22,29 @@ from kiro_conduit.events import EventBus
 from kiro_conduit.git_utils import run_git
 from kiro_conduit.merge import MergeOrchestrator, MergeReport
 from kiro_conduit.orchestrator import ParallelOrchestrator, ParallelRunReport
+from kiro_conduit.run_state import load_state, state_path
 
 logger = logging.getLogger(__name__)
+
+_LOG_FMT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+
+def _configure_run_logging(dashboard: bool, log_path: Path) -> None:
+    """控制台按 dashboard 决定详略；始终额外写一份完整 INFO 日志到文件（二者不互斥）。"""
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    for h in list(root.handlers):
+        root.removeHandler(h)
+    fmt = logging.Formatter(_LOG_FMT)
+    console = logging.StreamHandler()
+    console.setLevel(logging.WARNING if dashboard else logging.INFO)
+    console.setFormatter(fmt)
+    root.addHandler(console)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = logging.FileHandler(log_path, encoding="utf-8")
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(fmt)
+    root.addHandler(fh)
 
 
 def _resolve_dag(workspace: str) -> Path:
@@ -89,9 +110,27 @@ async def _run(args: argparse.Namespace) -> int:
     )
     print(f"✓ workspace: {dag_path}")
     print(f"  base repo: {base_repo}")
+    log_path = (
+        Path(args.log_file).expanduser()
+        if args.log_file
+        else base_repo / ".kiro-conduit" / "run.log"
+    )
+    _configure_run_logging(args.dashboard, log_path)
     await _preflight(base_repo)
     base_branch = await _resolve_base_branch(base_repo, args.base_branch)
+
+    # 裸重跑守卫：发现上次进度但既没 --resume 也没 --fresh → 提示而非默删重来
+    prior = load_state(state_path(base_repo))
+    if prior is not None and prior.passed_ids() and not args.resume and not args.fresh:
+        print(
+            f"\n✗ 发现上次运行的进度（{len(prior.passed_ids())} 个 task 已完成）。"
+            "\n  --resume 从断点续跑（复用已完成的分支）；"
+            "\n  --fresh  丢弃旧进度、从头重跑（会覆盖旧分支）。"
+        )
+        return 1
+
     print(f"  base branch: {base_branch}")
+    print(f"  log file: {log_path}")
     dest = "merge into base branch" if args.merge else "leave branches for review (no merge)"
     print(f"  on success: {dest}")
     summary = f"  {len(ws.tasks)} tasks, {len(ws.phases)} phases"
@@ -231,6 +270,14 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--max-attempts", type=int, default=3)
     run_p.add_argument("--kiro-cli", default="kiro-cli", help="path to kiro-cli binary")
     run_p.add_argument("--resume", action="store_true", help="resume from prior run-state")
+    run_p.add_argument(
+        "--fresh", action="store_true",
+        help="discard prior run-state and start over (overwrites old branches)",
+    )
+    run_p.add_argument(
+        "--log-file", default=None,
+        help="log file path (default: <base-repo>/.kiro-conduit/run.log; always written)",
+    )
     run_p.add_argument("--dashboard", action="store_true", help="show rich TUI dashboard")
     run_p.add_argument(
         "--diagnose", action="store_true",
@@ -255,12 +302,10 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
-    logging.basicConfig(
-        level=logging.WARNING if getattr(args, "dashboard", False) else logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
     if args.command == "plan":
+        logging.basicConfig(level=logging.INFO, format=_LOG_FMT)
         return asyncio.run(_plan(args))
+    # run：日志（控制台 + 文件）由 _run 内部配置（需要 base_repo 定位日志文件）
     return asyncio.run(_run(args))
 
 

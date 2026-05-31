@@ -472,6 +472,60 @@ class TestParallelOrchestrator:
         assert orch._isolation_env("a") == envs["a"]
 
     @pytest.mark.asyncio
+    async def test_interrupt_keeps_branches_for_resume(
+        self, real_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """中断时不清理：已完成 task 的分支应保留，供 --resume 续跑。"""
+        import asyncio
+
+        from kiro_conduit.git_utils import run_git
+
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        dag = write_workspace_with_specs(
+            ws_dir,
+            """
+            phases:
+              - name: A
+                type: serial
+                tasks: [t1]
+              - name: B
+                type: serial
+                tasks: [t2]
+            tasks:
+              t1: {spec: specs/t1.md}
+              t2: {spec: specs/t2.md, depends_on: [t1]}
+            shared_files: []
+            """,
+        )
+        ws = load_workspace(dag)
+
+        async def fake(self, task_def, wm, lock_manager, sem, base_branch, owner_handles=None):  # type: ignore[no-untyped-def]
+            async with sem:
+                wt = await wm.create(task_def.id, base_branch=base_branch)
+                (wt.path / f"{task_def.id}.txt").write_text("done\n")
+                await run_git(wt.path, ["add", "-A"])
+                await run_git(wt.path, ["commit", "-m", f"{task_def.id} done"])
+                return make_outcome(task_def.id, passed=True)
+
+        monkeypatch.setattr(ParallelOrchestrator, "_run_one_task", fake)
+
+        # 模拟中断：第一波跑完、t1 分支已建后，在落盘处抛中断（等价于 await 点被 Ctrl-C 打断）
+        def boom(self, *a, **k):  # type: ignore[no-untyped-def]
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(ParallelOrchestrator, "_persist_state", boom)
+
+        with pytest.raises(asyncio.CancelledError):
+            await ParallelOrchestrator(ws, real_repo).run()
+
+        # 中断后 t1 的分支仍在（没被清理）→ resume 可复用
+        code, _out, _err = await run_git(
+            real_repo, ["show-ref", "--verify", "--quiet", "refs/heads/kiro-conduit/t1"]
+        )
+        assert code == 0, "interrupt should keep completed task branch for resume"
+
+    @pytest.mark.asyncio
     async def test_constructor_validation(self, real_repo: Path, tmp_path: Path) -> None:
         ws_dir = tmp_path / "ws"
         ws_dir.mkdir()

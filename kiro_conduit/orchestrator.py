@@ -244,8 +244,15 @@ class ParallelOrchestrator:
 
                 # 增量写 state：每波跑完落盘，崩溃后可 resume
                 self._persist_state(state, state_file, outcomes, skipped, handles)
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            # 用户中断：保留 worktree + 分支 + run-state，下次 --resume 可续。不清理。
+            logger.warning(
+                "[orchestrator] interrupted — worktrees/branches kept; "
+                "rerun with --resume to continue"
+            )
+            raise
         except BaseException:
-            # 异常时清理（防 worktree 泄漏）
+            # 其他异常：清理防 worktree 泄漏
             for mgr in managers.values():
                 await mgr.cleanup_all()
                 await mgr.__aexit__(None, None, None)

@@ -94,6 +94,59 @@ class TestPlanCommand:
             main(["plan", "--spec", str(tmp_path / "nope.md"), "--out", str(tmp_path / "ws")])
 
 
+class TestRunGuardsAndLog:
+    def _prior_state(self, ws: Path) -> None:
+        from kiro_conduit.run_state import RunState, TaskRunStatus, save_state, state_path
+
+        st = RunState(base_branch="main")
+        st.record("t1", TaskRunStatus.PASSED, branch="kiro-conduit/t1", attempts=1)
+        save_state(state_path(ws.resolve()), st)
+
+    def test_bare_rerun_with_prior_state_blocked(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws = _write_ws(tmp_path)
+        self._prior_state(ws)
+        called = {"run": False}
+
+        async def fake_run(self, base_branch: str = "main") -> ParallelRunReport:  # type: ignore[no-untyped-def]
+            called["run"] = True
+            return ParallelRunReport(outcomes={}, skipped=(), handles={})
+
+        monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
+        code = main(["run", "--workspace", str(ws)])  # 无 --resume/--fresh
+        assert code == 1
+        assert called["run"] is False  # 守卫拦下，没真跑
+
+    def test_fresh_overrides_guard(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws = _write_ws(tmp_path)
+        self._prior_state(ws)
+
+        async def fake_run(self, base_branch: str = "main") -> ParallelRunReport:  # type: ignore[no-untyped-def]
+            return ParallelRunReport(
+                outcomes={"t1": _passing("t1")}, skipped=(), handles={}
+            )
+
+        monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
+        assert main(["run", "--workspace", str(ws), "--fresh"]) == 0
+
+    def test_run_writes_log_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws = _write_ws(tmp_path)
+
+        async def fake_run(self, base_branch: str = "main") -> ParallelRunReport:  # type: ignore[no-untyped-def]
+            return ParallelRunReport(
+                outcomes={"t1": _passing("t1")}, skipped=(), handles={}
+            )
+
+        monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
+        main(["run", "--workspace", str(ws)])
+        assert (ws / ".kiro-conduit" / "run.log").is_file()
+
+
 class TestResolveDag:
     def test_dir_with_dag(self, tmp_path: Path) -> None:
         ws = _write_ws(tmp_path)
