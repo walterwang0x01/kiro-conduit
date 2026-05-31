@@ -13,6 +13,7 @@ M0 实现策略：
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from kiro_conduit.acp import (
@@ -37,57 +38,50 @@ class Implementor:
         kiro_cli_path: str = "kiro-cli",
         prompt_timeout: float = 600.0,
         model: str | None = None,
+        max_retries: int = 2,
+        retry_base_delay: float = 1.0,
     ) -> None:
         self._kiro_cli_path = kiro_cli_path
         self._prompt_timeout = prompt_timeout
         self._model = model
+        # 瞬时基础设施错误（超时 / 连接）时的退避重试。max_retries=2 → 最多跑 3 次。
+        self._max_retries = max_retries
+        self._retry_base_delay = retry_base_delay
 
     async def run(self, task: Task) -> TaskResult:
-        """执行任务，返回结果。"""
+        """执行任务，返回结果。瞬时 ACP 错误会退避重试。"""
         logger.info("[implementor] start task=%s cwd=%s", task.id, task.cwd)
-        config = AcpClientConfig(
-            kiro_cli_path=self._kiro_cli_path,
-            cwd=task.cwd,
-            response_timeout=self._prompt_timeout,
-            model=self._model,
-        )
         transcript_parts: list[str] = []
-        try:
-            async with await AcpClient.spawn(config) as client:
-                await client.initialize()
-                session_id = await client.new_session(cwd=task.cwd)
 
-                full_prompt = self._render_prompt(task)
-                logger.debug("[implementor] prompt:\n%s", full_prompt)
-
-                events = await client.prompt(session_id, full_prompt)
-                async for event in events:
-                    if isinstance(event, AgentMessageChunk):
-                        transcript_parts.append(event.text)
-                    elif isinstance(event, AgentThoughtChunk):
-                        # 思考内容也记录进 transcript，方便排查
-                        transcript_parts.append(f"[thought] {event.text}\n")
-                    elif isinstance(event, ToolCallEvent):
-                        transcript_parts.append(
-                            f"[tool {event.status}] {event.name}\n"
-                        )
-                    elif isinstance(event, TurnEnd):
-                        logger.info(
-                            "[implementor] task=%s turn ended (stop=%s)",
-                            task.id,
-                            event.stop_reason,
-                        )
-                        break
-        except (TimeoutError, ConnectionError) as exc:
-            logger.error("[implementor] task=%s failed: %s", task.id, exc)
-            return TaskResult(
-                task_id=task.id,
-                success=False,
-                diff="",
-                files_changed=[],
-                error=f"{type(exc).__name__}: {exc}",
-                transcript="".join(transcript_parts),
-            )
+        for attempt in range(1, self._max_retries + 2):
+            try:
+                transcript_parts = await self._run_acp(task)
+                break
+            except (TimeoutError, ConnectionError) as exc:
+                if attempt <= self._max_retries:
+                    delay = self._retry_base_delay * (2 ** (attempt - 1))
+                    logger.warning(
+                        "[implementor] task=%s ACP attempt %d/%d failed: %s; "
+                        "retrying in %.1fs",
+                        task.id,
+                        attempt,
+                        self._max_retries + 1,
+                        exc,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.error(
+                    "[implementor] task=%s exhausted ACP retries: %s", task.id, exc
+                )
+                return TaskResult(
+                    task_id=task.id,
+                    success=False,
+                    diff="",
+                    files_changed=[],
+                    error=f"{type(exc).__name__}: {exc}",
+                    transcript="".join(transcript_parts),
+                )
 
         # 收集 git 改动
         try:
@@ -123,6 +117,41 @@ class Implementor:
             error=None,
             transcript="".join(transcript_parts),
         )
+
+    async def _run_acp(self, task: Task) -> list[str]:
+        """跑一次完整 ACP 交互，返回 transcript 片段。瞬时错误（超时/连接）向上抛，
+        由 run() 的退避循环处理。"""
+        config = AcpClientConfig(
+            kiro_cli_path=self._kiro_cli_path,
+            cwd=task.cwd,
+            response_timeout=self._prompt_timeout,
+            model=self._model,
+        )
+        transcript_parts: list[str] = []
+        async with await AcpClient.spawn(config) as client:
+            await client.initialize()
+            session_id = await client.new_session(cwd=task.cwd)
+
+            full_prompt = self._render_prompt(task)
+            logger.debug("[implementor] prompt:\n%s", full_prompt)
+
+            events = await client.prompt(session_id, full_prompt)
+            async for event in events:
+                if isinstance(event, AgentMessageChunk):
+                    transcript_parts.append(event.text)
+                elif isinstance(event, AgentThoughtChunk):
+                    # 思考内容也记录进 transcript，方便排查
+                    transcript_parts.append(f"[thought] {event.text}\n")
+                elif isinstance(event, ToolCallEvent):
+                    transcript_parts.append(f"[tool {event.status}] {event.name}\n")
+                elif isinstance(event, TurnEnd):
+                    logger.info(
+                        "[implementor] task=%s turn ended (stop=%s)",
+                        task.id,
+                        event.stop_reason,
+                    )
+                    break
+        return transcript_parts
 
     @staticmethod
     def _render_prompt(task: Task) -> str:
