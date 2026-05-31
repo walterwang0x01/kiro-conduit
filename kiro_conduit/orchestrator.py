@@ -414,10 +414,11 @@ class ParallelOrchestrator:
                     ),
                 )
             )
-            # 如果这个 task 是某个 interface_lock 的 owner，跑成功后立刻 auto-commit
-            # 让它的分支真的有这次产出，下游 consumer 才能基于它起 worktree
-            if outcome.passed and self._is_interface_lock_owner(task_def.id):
-                await self._auto_commit_owner(wt)
+            # task 跑成功后立刻把改动 commit 到它自己的分支：
+            # - 让下游 consumer 能基于（owner）分支起 worktree
+            # - 让 review / merge 阶段分支上有内容（不再依赖 merge 阶段才 commit）
+            if outcome.passed:
+                await self._commit_task(wt)
             return outcome
 
     def _effective_base_branch(
@@ -433,15 +434,8 @@ class ParallelOrchestrator:
                     return owner_handles[lock.owner].branch
         return default_base
 
-    def _is_interface_lock_owner(self, task_id: str) -> bool:
-        for phase in self._workspace.phases:
-            for lock in phase.interface_locks:
-                if task_id == lock.owner:
-                    return True
-        return False
-
-    async def _auto_commit_owner(self, wt: WorktreeHandle) -> None:
-        """owner task 跑成功后自动 commit，让 consumer 能基于此分支起 worktree。"""
+    async def _commit_task(self, wt: WorktreeHandle) -> None:
+        """task 跑成功后把改动 commit 到它自己的分支（review / merge 都依赖它）。"""
         from kiro_conduit.git_utils import run_git
 
         # add 全部（用 :(exclude) 排除 __pycache__ 等噪音）
@@ -460,7 +454,7 @@ class ParallelOrchestrator:
         )
         if code != 0:
             logger.warning(
-                "[orchestrator] auto-commit add failed for owner %s: %s",
+                "[orchestrator] commit add failed for %s: %s",
                 wt.task_id,
                 stderr.strip(),
             )
@@ -469,23 +463,23 @@ class ParallelOrchestrator:
         code, stdout, _ = await run_git(wt.path, ["diff", "--cached", "--name-only"])
         if not stdout.strip():
             logger.debug(
-                "[orchestrator] owner %s has no staged changes, skip auto-commit",
+                "[orchestrator] %s has no staged changes, skip commit",
                 wt.task_id,
             )
             return
         code, _, stderr = await run_git(
             wt.path,
-            ["commit", "-m", f"kiro-conduit owner stub: {wt.task_id}"],
+            ["commit", "-m", f"kiro-conduit: {wt.task_id}"],
         )
         if code != 0:
             logger.warning(
-                "[orchestrator] auto-commit failed for owner %s: %s",
+                "[orchestrator] commit failed for %s: %s",
                 wt.task_id,
                 stderr.strip(),
             )
             return
         logger.info(
-            "[orchestrator] auto-committed owner %s on branch %s",
+            "[orchestrator] committed %s on branch %s",
             wt.task_id,
             wt.branch,
         )

@@ -400,6 +400,41 @@ class TestParallelOrchestrator:
         assert str(report.handles["t2"].path).startswith(str(other))
 
     @pytest.mark.asyncio
+    async def test_commit_task_commits_work_to_its_branch(
+        self, real_repo: Path, tmp_path: Path
+    ) -> None:
+        """_commit_task：task 通过后改动被提交到它自己的分支（review/merge 都依赖此）。"""
+        from kiro_conduit.worktree import WorktreeManager
+
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        dag = write_workspace_with_specs(
+            ws_dir,
+            """
+            phases:
+              - name: A
+                type: serial
+                tasks: [t1]
+            tasks:
+              t1: {spec: specs/t1.md}
+            shared_files: []
+            """,
+        )
+        ws = load_workspace(dag)
+        orch = ParallelOrchestrator(ws, real_repo)
+        async with WorktreeManager(real_repo) as wm:
+            wt = await wm.create("t1")
+            (wt.path / "new.py").write_text("x = 1\n")
+            await orch._commit_task(wt)
+            # 在 cleanup（会删分支）之前断言：分支上已有提交
+            out = subprocess.run(
+                ["git", "show", "kiro-conduit/t1:new.py"],
+                cwd=real_repo, capture_output=True, text=True,
+            )
+        assert out.returncode == 0
+        assert out.stdout == "x = 1\n"
+
+    @pytest.mark.asyncio
     async def test_constructor_validation(self, real_repo: Path, tmp_path: Path) -> None:
         ws_dir = tmp_path / "ws"
         ws_dir.mkdir()
