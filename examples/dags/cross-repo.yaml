@@ -1,0 +1,55 @@
+# 跨仓库 demo workspace：一份 DAG，task 分布在两个 git 仓库。
+#
+#   repos:
+#     api -> ../api-repo   （后端仓库）
+#     web -> ../web-repo   （前端仓库）
+#   task.repo 缺省（不写）= 默认仓库（orchestrator 的 base_repo）。
+#
+# 期望波次：
+#   wave 1: [api-schema]                 # 后端先定接口
+#   wave 2: [api-handler, web-client]    # 后端实现 + 前端对接，分属不同仓库并行
+#
+# 关键点：api-* 落 api 仓库、web-* 落 web 仓库，各自独立 worktree + 独立串行 merge。
+# 某个仓库 merge 冲突只停该仓库的后续 task，另一个仓库不受影响。
+#
+# repos 路径相对本 dag.yaml 所在目录解析（也可写绝对路径）。
+repos:
+  api: ../api-repo
+  web: ../web-repo
+
+phases:
+  - name: contract
+    type: serial
+    tasks: [api-schema]
+  - name: build
+    type: parallel
+    tasks: [api-handler, web-client]
+
+tasks:
+  api-schema:
+    spec: ../specs/api-schema.md
+    repo: api
+    files_owned:
+      - "schema/types.py"
+    acceptance:
+      - "python3 -m py_compile schema/types.py"
+
+  api-handler:
+    spec: ../specs/api-handler.md
+    repo: api
+    depends_on: [api-schema]
+    files_owned:
+      - "handlers/users.py"
+    acceptance:
+      - "python3 -m py_compile handlers/users.py"
+
+  web-client:
+    spec: ../specs/web-client.md
+    repo: web
+    depends_on: [api-schema]
+    files_owned:
+      - "src/apiClient.ts"
+    acceptance:
+      - "node --check src/apiClient.ts"
+
+shared_files: []

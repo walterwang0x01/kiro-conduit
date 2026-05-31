@@ -683,3 +683,21 @@ class TestCrossRepoSchema:
                     """,
                 )
             )
+
+    def test_example_cross_repo_dag_loads(self) -> None:
+        """examples/dags/cross-repo.yaml 能加载，repos/repo 与波次符合预期。"""
+        from kiro_conduit.dag import topological_waves
+
+        example = (
+            Path(__file__).resolve().parents[2]
+            / "examples" / "dags" / "cross-repo.yaml"
+        )
+        ws = load_workspace(example)
+        assert ws.repos == {"api": "../api-repo", "web": "../web-repo"}
+        assert ws.tasks["api-schema"].repo == "api"
+        assert ws.tasks["api-handler"].repo == "api"
+        assert ws.tasks["web-client"].repo == "web"
+        waves = topological_waves(ws)
+        assert waves[0] == ["api-schema"]
+        assert set(waves[1]) == {"api-handler", "web-client"}
+
