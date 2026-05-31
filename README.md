@@ -8,8 +8,9 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
-  <img alt="status: M1.1 done" src="https://img.shields.io/badge/status-M1.1%20done-green">
-  <img alt="tests" src="https://img.shields.io/badge/tests-199%20passed-brightgreen">
+  <a href="https://github.com/walterwang0x01/kiro-conduit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/walterwang0x01/kiro-conduit/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="status: M2 in progress" src="https://img.shields.io/badge/status-M2%20in%20progress-green">
+  <img alt="tests" src="https://img.shields.io/badge/tests-227%20passed-brightgreen">
   <img alt="ruff" src="https://img.shields.io/badge/ruff-clean-brightgreen">
   <img alt="mypy" src="https://img.shields.io/badge/mypy--strict-clean-brightgreen">
   <img alt="python" src="https://img.shields.io/badge/python-3.11%2B-blue">
@@ -276,7 +277,7 @@ main 上 src/calc/__init__.py:
 
 | 工具 | 类型 | 支持的 agent | 共享文件锁 | 接口锁定 (stub-first) | 跨仓库 |
 |------|------|--------------|------------|----------------------|--------|
-| **kiro-conduit** | OSS, Python | **Kiro CLI** (ACP) | ✅ M1.0 (single-writer) | ✅ M1.1 stub-first | 计划 M2 |
+| **kiro-conduit** | OSS, Python | **Kiro CLI** (ACP) | ✅ M1.0 (single-writer) | ✅ M1.1 stub-first | ✅ M2 核心支持 |
 | Conductor (YC S24) | macOS app | Claude Code, Cursor | ✗ | ✗ | ✗ |
 | Intent (Augment) | VS Code 插件 | Augment + BYOA | ✓ | 部分 | 部分 |
 | microsoft/conductor | CLI | Copilot SDK, Anthropic | ✗ | ✗ | ✗ |
@@ -368,6 +369,8 @@ kiro-conduit 不发明新模式，它把 2026 年行业共识的 **6 大并行�
   - **step 3** BYOA 模型路由 + 完整锁 policy（append-only / coordinator-only）
   - **step 4** TUI dashboard（rich live + EventBus）
 - [ ] **M2：实战** — 跑通真实大 spec（跨多模块 + 跨两仓库的 11 PR 项目）
+  - 已落地：跨仓库支持（repos + per-repo worktree/merge）、断点续跑（run-state）、
+    瞬时错误退避重试、GitHub Actions CI；**待做**：真实大 spec 端到端验证
 - [ ] **M3：开源** — 完整 user guide / CI / PyPI / 公开博客系列
 
 ---
