@@ -275,6 +275,80 @@ class TestParallelOrchestrator:
         assert max_seen == 1, f"max_concurrency=1 not respected, peak={max_seen}"
 
     @pytest.mark.asyncio
+    async def test_resume_skips_passed_tasks(
+        self, real_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """第一次跑 t1 过、t2 挂；resume 第二次应跳过 t1（不重跑），只重跑 t2。"""
+        from kiro_conduit.git_utils import run_git
+        from kiro_conduit.run_state import load_state, state_path
+
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        dag = write_workspace_with_specs(
+            ws_dir,
+            """
+            phases:
+              - name: A
+                type: serial
+                tasks: [t1]
+              - name: B
+                type: serial
+                tasks: [t2]
+            tasks:
+              t1: {spec: specs/t1.md}
+              t2: {spec: specs/t2.md, depends_on: [t1]}
+            shared_files: []
+            """,
+        )
+        ws = load_workspace(dag)
+
+        def real_wt_fake(
+            behaviors: dict[str, bool], started: list[str]
+        ) -> Callable[..., object]:
+            async def fake(self, task_def, wm, lock_manager, sem, base_branch, owner_handles=None):  # type: ignore[no-untyped-def]
+                async with sem:
+                    started.append(task_def.id)
+                    wt = await wm.create(task_def.id, base_branch=base_branch)
+                    passed = behaviors.get(task_def.id, True)
+                    if passed:
+                        (wt.path / f"{task_def.id}.txt").write_text("done\n")
+                        await run_git(wt.path, ["add", "-A"])
+                        await run_git(wt.path, ["commit", "-m", f"{task_def.id} done"])
+                    return make_outcome(task_def.id, passed=passed)
+
+            return fake
+
+        # 第一次跑：t1 过，t2 挂
+        started1: list[str] = []
+        monkeypatch.setattr(
+            ParallelOrchestrator, "_run_one_task",
+            real_wt_fake({"t1": True, "t2": False}, started1),
+        )
+        report1 = await ParallelOrchestrator(ws, real_repo).run()
+        assert report1.outcomes["t1"].passed
+        assert not report1.outcomes["t2"].passed
+
+        # state 落盘了，且只有 t1 passed
+        st = load_state(state_path(real_repo))
+        assert st is not None
+        assert st.passed_ids() == {"t1"}
+
+        # 第二次跑 resume=True：t1 不重跑（restored），t2 重跑且这次过
+        started2: list[str] = []
+        monkeypatch.setattr(
+            ParallelOrchestrator, "_run_one_task",
+            real_wt_fake({"t2": True}, started2),
+        )
+        report2 = await ParallelOrchestrator(ws, real_repo, resume=True).run()
+
+        assert started2 == ["t2"], f"只应重跑 t2，实际跑了 {started2}"
+        assert report2.outcomes["t1"].passed  # restored
+        assert report2.outcomes["t2"].passed  # 重跑通过
+        assert report2.all_passed
+        # t1 的 worktree 被 resume 重建，handle 可供 merge 阶段用
+        assert "t1" in report2.handles
+
+    @pytest.mark.asyncio
     async def test_constructor_validation(self, real_repo: Path, tmp_path: Path) -> None:
         ws_dir = tmp_path / "ws"
         ws_dir.mkdir()

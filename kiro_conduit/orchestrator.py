@@ -35,6 +35,13 @@ from kiro_conduit.locks import SharedFileLockManager
 from kiro_conduit.roles.coordinator import Coordinator, CoordinatorOutcome
 from kiro_conduit.roles.implementor import Implementor
 from kiro_conduit.roles.verifier import Verifier
+from kiro_conduit.run_state import (
+    RunState,
+    TaskRunStatus,
+    load_state,
+    save_state,
+    state_path,
+)
 from kiro_conduit.types import Task
 from kiro_conduit.worktree import WorktreeHandle, WorktreeManager
 
@@ -80,6 +87,7 @@ class ParallelOrchestrator:
         review_timeout: float = 180.0,
         model_routing: dict[str, str] | None = None,
         event_bus: EventBus | None = None,
+        resume: bool = False,
     ) -> None:
         if not base_repo.is_absolute():
             raise ValueError(f"base_repo must be absolute, got {base_repo}")
@@ -98,6 +106,9 @@ class ParallelOrchestrator:
         # 不在 routing 里的 role 用 None（= Kiro 默认模型）。
         self._model_routing = dict(model_routing or {})
         self._event_bus = event_bus
+        # resume：True 时读上次 run-state，跳过已 passed 的 task。
+        # 写 state 始终开启（不受此标志控制），让任意一次跑都能被后续 resume。
+        self._resume = resume
 
     async def run(self, base_branch: str = "main") -> ParallelRunReport:
         """跑全工作区：所有波次依次执行，波内并行。
@@ -112,6 +123,18 @@ class ParallelOrchestrator:
             len(waves),
             [len(w) for w in waves],
         )
+
+        # resume：读上次 state（仅 resume=True 时）。写 state 始终开启。
+        state_file = state_path(self._base_repo)
+        prior = load_state(state_file) if self._resume else None
+        resume_passed = prior.passed_ids() if prior is not None else set()
+        state = prior if prior is not None else RunState(base_branch=base_branch)
+        if resume_passed:
+            logger.info(
+                "[orchestrator] resume: %d task(s) already passed, will skip: %s",
+                len(resume_passed),
+                sorted(resume_passed),
+            )
 
         outcomes: dict[str, CoordinatorOutcome] = {}
         skipped: list[str] = []
@@ -128,15 +151,37 @@ class ParallelOrchestrator:
             sem = asyncio.Semaphore(self._max_concurrency)
 
             for wave_idx, wave in enumerate(waves, start=1):
-                wave_skipped, wave_to_run = self._partition_wave(
+                wave_skipped, wave_runnable = self._partition_wave(
                     wave, failed_tasks
                 )
                 skipped.extend(wave_skipped)
+
+                # resume：已 passed 的不重跑，重建 worktree + 恢复 outcome
+                wave_to_run: list[str] = []
+                for tid in wave_runnable:
+                    if tid in resume_passed:
+                        wt = await wm.create(tid, reuse_branch=True)
+                        handles[tid] = wt
+                        outcomes[tid] = self._make_resumed_outcome(
+                            tid, state.tasks[tid].attempts
+                        )
+                        logger.info(
+                            "[orchestrator] resume: skip passed task %s "
+                            "(rebuilt worktree from branch %s)",
+                            tid,
+                            wt.branch,
+                        )
+                    else:
+                        wave_to_run.append(tid)
+
                 if not wave_to_run:
-                    logger.warning(
-                        "[orchestrator] wave %d: all skipped due to upstream failures",
-                        wave_idx,
-                    )
+                    if wave_skipped:
+                        logger.warning(
+                            "[orchestrator] wave %d: all skipped due to "
+                            "upstream failures",
+                            wave_idx,
+                        )
+                    self._persist_state(state, state_file, outcomes, skipped, handles)
                     continue
 
                 logger.info(
@@ -189,6 +234,9 @@ class ParallelOrchestrator:
                     h = wm._handles.get(tid)
                     if h is not None:
                         handles[tid] = h
+
+                # 增量写 state：每波跑完落盘，崩溃后可 resume
+                self._persist_state(state, state_file, outcomes, skipped, handles)
         except BaseException:
             # 异常时清理（防 worktree 泄漏）
             await wm.cleanup_all()
@@ -222,6 +270,48 @@ class ParallelOrchestrator:
         """转发事件给可选的 EventBus（None 时无操作）。"""
         if self._event_bus is not None:
             self._event_bus.publish(event)  # type: ignore[arg-type]
+
+    def _persist_state(
+        self,
+        state: RunState,
+        state_file: Path,
+        outcomes: dict[str, CoordinatorOutcome],
+        skipped: list[str],
+        handles: dict[str, WorktreeHandle],
+    ) -> None:
+        """把当前进度整体重写进 run-state.json（幂等，每波跑完调一次）。"""
+        for tid, oc in outcomes.items():
+            h = handles.get(tid)
+            state.record(
+                tid,
+                TaskRunStatus.PASSED if oc.passed else TaskRunStatus.FAILED,
+                branch=h.branch if h is not None else None,
+                attempts=oc.attempts,
+            )
+        for tid in skipped:
+            state.record(tid, TaskRunStatus.SKIPPED)
+        save_state(state_file, state)
+
+    @staticmethod
+    def _make_resumed_outcome(task_id: str, attempts: int) -> CoordinatorOutcome:
+        """为上次已 passed 的 task 造一个 restored outcome（不重跑 CIV）。"""
+        from kiro_conduit.types import TaskResult, VerifyResult
+
+        tr = TaskResult(task_id=task_id, success=True, diff="", files_changed=[])
+        vr = VerifyResult(
+            task_id=task_id,
+            passed=True,
+            layers=[],
+            feedback="resumed: passed in a prior run",
+        )
+        return CoordinatorOutcome(
+            task_id=task_id,
+            passed=True,
+            attempts=attempts,
+            last_task_result=tr,
+            last_verify_result=vr,
+            history=[(tr, vr)],
+        )
 
     def _partition_wave(
         self, wave: list[str], failed_tasks: set[str]

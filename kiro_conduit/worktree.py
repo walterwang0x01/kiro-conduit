@@ -92,8 +92,19 @@ class WorktreeManager:
 
     # ----------------------------------------------------------- public api
 
-    async def create(self, task_id: str, base_branch: str = "main") -> WorktreeHandle:
-        """创建一个新 worktree（基于 base_branch）。"""
+    async def create(
+        self,
+        task_id: str,
+        base_branch: str = "main",
+        *,
+        reuse_branch: bool = False,
+    ) -> WorktreeHandle:
+        """创建一个新 worktree。
+
+        reuse_branch=False（默认）：基于 base_branch 新建分支 kiro-conduit/<task_id>。
+        reuse_branch=True（resume 用）：复用已存在的同名分支——passed task 的分支
+            已 commit，worktree 可能已被清掉，这里从该分支重建，且**不删该分支**。
+        """
         if task_id in self._handles:
             raise WorktreeError(f"worktree for {task_id!r} already exists")
 
@@ -103,14 +114,21 @@ class WorktreeManager:
         # 防御：清理上次跑可能留下的残留——
         # 1. 物理 worktree 目录还在（上次 SIGKILL / 磁盘问题等）
         # 2. .git/worktrees/<task_id>/ 元数据残留
-        # 3. 同名分支残留
+        # 3. 同名分支残留（仅非 reuse 模式；reuse 模式要保留该分支）
         async with self._git_lock:
             await self._cleanup_residual_worktree(path)
-            await self._cleanup_residual_branch(branch)
-            code, _stdout, stderr = await run_git(
-                self._base_repo,
-                ["worktree", "add", str(path), "-b", branch, base_branch],
-            )
+            if reuse_branch:
+                # 复用已存在分支：worktree add <path> <branch>（不带 -b，不删分支）
+                code, _stdout, stderr = await run_git(
+                    self._base_repo,
+                    ["worktree", "add", str(path), branch],
+                )
+            else:
+                await self._cleanup_residual_branch(branch)
+                code, _stdout, stderr = await run_git(
+                    self._base_repo,
+                    ["worktree", "add", str(path), "-b", branch, base_branch],
+                )
             if code != 0:
                 raise WorktreeError(
                     f"git worktree add failed for {task_id}: {stderr.strip()}"

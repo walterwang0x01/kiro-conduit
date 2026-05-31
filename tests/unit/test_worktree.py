@@ -101,6 +101,29 @@ class TestWorktreeManager:
             assert handle.path.is_dir()
 
     @pytest.mark.asyncio
+    async def test_reuse_branch_rebuilds_from_existing(self, tmp_git_repo: Path) -> None:
+        """resume 场景：分支已存在且有 commit，进程崩溃（worktree 残留、分支保留），
+        新 manager 用 reuse_branch 重建，应能看到分支上的 commit。"""
+        from kiro_conduit.git_utils import run_git
+
+        # 第一次跑：建 worktree，在分支上 commit 一个文件
+        wm1 = WorktreeManager(tmp_git_repo)
+        await wm1.__aenter__()
+        handle = await wm1.create("resumed")
+        (handle.path / "done.txt").write_text("passed\n")
+        await run_git(handle.path, ["add", "done.txt"])
+        await run_git(handle.path, ["commit", "-m", "task passed"])
+        # 模拟进程被 kill：不走 cleanup（否则会删分支），残留 worktree + 分支都留在磁盘
+        wm1._handles.clear()
+        await wm1.__aexit__(None, None, None)
+
+        # 第二次跑（resume）：新 manager，复用已 commit 的分支
+        async with WorktreeManager(tmp_git_repo) as wm2:
+            rebuilt = await wm2.create("resumed", reuse_branch=True)
+            assert rebuilt.branch == "kiro-conduit/resumed"
+            assert (rebuilt.path / "done.txt").read_text() == "passed\n"
+
+    @pytest.mark.asyncio
     async def test_git_lock_serializes_operations(self, tmp_git_repo: Path) -> None:
         """同一个 manager 上并发跑多个 create，git_lock 保证不撞车。"""
         import asyncio
