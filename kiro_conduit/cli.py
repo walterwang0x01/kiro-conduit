@@ -89,8 +89,11 @@ async def _run(args: argparse.Namespace) -> int:
     )
     print(f"✓ workspace: {dag_path}")
     print(f"  base repo: {base_repo}")
+    await _preflight(base_repo)
     base_branch = await _resolve_base_branch(base_repo, args.base_branch)
     print(f"  base branch: {base_branch}")
+    dest = "merge into base branch" if args.merge else "leave branches for review (no merge)"
+    print(f"  on success: {dest}")
     summary = f"  {len(ws.tasks)} tasks, {len(ws.phases)} phases"
     if ws.repos:
         summary += f", repos: {sorted(ws.repos)}"
@@ -145,6 +148,23 @@ def _print_review_hint(report: ParallelRunReport, base_branch: str) -> None:
         print(f"  {tid}: {branch}")
     print(f"\n  查看改动:  git diff {base_branch}...<branch>")
     print("  合并:      重跑时加 --merge（或自行 git merge / 开 PR）")
+
+
+async def _preflight(base_repo: Path) -> None:
+    """启动预检：确认是 git 仓库（否则报错早退），打印当前分支与脏区状态。"""
+    code, _o, _e = await run_git(base_repo, ["rev-parse", "--is-inside-work-tree"])
+    if code != 0:
+        raise SystemExit(f"not a git repository: {base_repo}")
+    _c, cur, _ = await run_git(base_repo, ["rev-parse", "--abbrev-ref", "HEAD"])
+    _c, status, _ = await run_git(base_repo, ["status", "--porcelain"])
+    print(f"  current branch: {cur.strip() or '(detached)'}")
+    if status.strip():
+        print(
+            "  working tree: dirty — 安全（worktree 从已提交 HEAD 起，"
+            "你的工作区与当前分支全程不动）"
+        )
+    else:
+        print("  working tree: clean")
 
 
 async def _resolve_base_branch(base_repo: Path, override: str | None) -> str:

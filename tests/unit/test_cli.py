@@ -38,6 +38,12 @@ def _write_ws(tmp_path: Path) -> Path:
     specs = ws / "specs"
     specs.mkdir()
     (specs / "t1.md").write_text("t1\n")
+    # git 仓库化：让 ws 自身可作 base_repo（CLI 预检要求是 git 仓库）
+    subprocess.run(["git", "init", "-b", "main"], cwd=ws, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=ws, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=ws, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=ws, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=ws, check=True, capture_output=True)
     return ws
 
 
@@ -79,6 +85,20 @@ class TestMain:
         with pytest.raises(SystemExit):
             main([])
 
+    def test_preflight_rejects_non_git_base_repo(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws = _write_ws(tmp_path)
+        non_git = tmp_path / "nongit"
+        non_git.mkdir()
+
+        async def fake_run(self, base_branch: str = "main") -> ParallelRunReport:  # type: ignore[no-untyped-def]
+            raise AssertionError("should not reach run(): preflight must fail first")
+
+        monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
+        with pytest.raises(SystemExit, match="not a git repository"):
+            main(["run", "--workspace", str(ws), "--base-repo", str(non_git)])
+
     def test_run_no_merge_exit0(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -91,7 +111,7 @@ class TestMain:
 
         monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
         # 默认即 review 模式（不合并）
-        code = main(["run", "--workspace", str(ws), "--base-repo", str(tmp_path)])
+        code = main(["run", "--workspace", str(ws)])
         assert code == 0
 
     def test_run_full_invokes_merge(
@@ -116,7 +136,7 @@ class TestMain:
 
         monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
         monkeypatch.setattr(MergeOrchestrator, "merge", fake_merge)
-        code = main(["run", "--workspace", str(ws), "--base-repo", str(tmp_path), "--merge"])
+        code = main(["run", "--workspace", str(ws), "--merge"])
         assert code == 0
         assert merged.get("called") is True
 
@@ -169,6 +189,6 @@ class TestMain:
         monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
         monkeypatch.setattr(MergeOrchestrator, "merge", fake_merge)
         # 即使显式 --merge，任务失败也应短路，不进 merge
-        code = main(["run", "--workspace", str(ws), "--base-repo", str(tmp_path), "--merge"])
+        code = main(["run", "--workspace", str(ws), "--merge"])
         assert code == 1
         assert called["merge"] is False  # 失败时不该进 merge
