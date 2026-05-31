@@ -179,6 +179,35 @@ async def _resolve_base_branch(base_repo: Path, override: str | None) -> str:
     return "main"
 
 
+async def _plan(args: argparse.Namespace) -> int:
+    from kiro_conduit.planner import KiroPlanner, PlanError, write_plan
+
+    spec_path = Path(args.spec).expanduser()
+    if not spec_path.is_file():
+        raise SystemExit(f"spec file not found: {spec_path}")
+    spec_text = spec_path.read_text(encoding="utf-8")
+    out_dir = Path(args.out).expanduser().resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"✓ planning from spec: {spec_path}")
+    print("  asking Kiro to decompose it into a DAG (this may take ~1 min)...")
+    planner = KiroPlanner(kiro_cli_path=args.kiro_cli, model=args.model)
+    try:
+        tasks = await planner.generate_plan(spec_text, cwd=out_dir)
+        dag_path = write_plan(tasks, out_dir)
+    except PlanError as exc:
+        print(f"\n✗ planning failed: {exc}")
+        return 1
+
+    print(f"\n✓ generated {dag_path}  ({len(tasks)} tasks)")
+    for t in tasks:
+        deps = f" (after {', '.join(t.depends_on)})" if t.depends_on else ""
+        print(f"  - {t.id}{deps}")
+    print("\n下一步：review 上面的 dag.yaml + specs/，确认后执行：")
+    print(f"  kiro-conduit run --workspace {out_dir} --base-repo <你的仓库>")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="kiro-conduit",
@@ -213,11 +242,25 @@ def main(argv: list[str] | None = None) -> int:
              "(default: leave branches for review)",
     )
 
+    plan_p = sub.add_parser(
+        "plan", help="LLM-assisted: turn a markdown spec into a dag.yaml workspace"
+    )
+    plan_p.add_argument("--spec", required=True, help="markdown spec file to plan from")
+    plan_p.add_argument(
+        "--out", required=True, help="output workspace dir (dag.yaml + specs/)"
+    )
+    plan_p.add_argument("--kiro-cli", default="kiro-cli", help="path to kiro-cli binary")
+    plan_p.add_argument(
+        "--model", default=None, help="model id for planning (default: Kiro default)"
+    )
+
     args = parser.parse_args(argv)
     logging.basicConfig(
-        level=logging.WARNING if args.dashboard else logging.INFO,
+        level=logging.WARNING if getattr(args, "dashboard", False) else logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    if args.command == "plan":
+        return asyncio.run(_plan(args))
     return asyncio.run(_run(args))
 
 

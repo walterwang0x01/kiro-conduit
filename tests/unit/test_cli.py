@@ -61,6 +61,39 @@ def _passing(tid: str) -> CoordinatorOutcome:
     )
 
 
+class TestPlanCommand:
+    def test_plan_generates_workspace(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from kiro_conduit import planner as planner_mod
+        from kiro_conduit.dag import load_workspace, topological_waves
+        from kiro_conduit.planner import TaskPlan
+
+        spec = tmp_path / "spec.md"
+        spec.write_text("build a small util lib", encoding="utf-8")
+        out = tmp_path / "ws"
+
+        async def fake_generate(self, spec_text, cwd):  # type: ignore[no-untyped-def]
+            assert "small util" in spec_text
+            return [
+                TaskPlan(id="a", prompt="build a", files_owned=["a.py"]),
+                TaskPlan(id="b", prompt="build b", depends_on=["a"], files_owned=["b.py"]),
+            ]
+
+        monkeypatch.setattr(planner_mod.KiroPlanner, "generate_plan", fake_generate)
+        code = main(["plan", "--spec", str(spec), "--out", str(out)])
+        assert code == 0
+        # 生成了可加载的 dag.yaml + specs
+        ws = load_workspace(out / "dag.yaml")
+        assert set(ws.tasks) == {"a", "b"}
+        assert topological_waves(ws) == [["a"], ["b"]]
+        assert (out / "specs" / "a.md").read_text().startswith("build a")
+
+    def test_plan_missing_spec_errors(self, tmp_path: Path) -> None:
+        with pytest.raises(SystemExit, match="spec file not found"):
+            main(["plan", "--spec", str(tmp_path / "nope.md"), "--out", str(tmp_path / "ws")])
+
+
 class TestResolveDag:
     def test_dir_with_dag(self, tmp_path: Path) -> None:
         ws = _write_ws(tmp_path)
