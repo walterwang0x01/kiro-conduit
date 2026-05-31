@@ -435,6 +435,43 @@ class TestParallelOrchestrator:
         assert out.stdout == "x = 1\n"
 
     @pytest.mark.asyncio
+    async def test_isolation_env_is_deterministic_and_distinct(
+        self, real_repo: Path, tmp_path: Path
+    ) -> None:
+        """每个 task 拿到确定性、不冲突的隔离 env（端口区间不重叠 + 独立 scratch + task-id）。"""
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        dag = write_workspace_with_specs(
+            ws_dir,
+            """
+            phases:
+              - name: A
+                type: parallel
+                tasks: [a, b, c]
+            tasks:
+              a: {spec: specs/a.md}
+              b: {spec: specs/b.md}
+              c: {spec: specs/c.md}
+            shared_files: []
+            """,
+        )
+        ws = load_workspace(dag)
+        orch = ParallelOrchestrator(ws, real_repo, isolation_base_port=5000)
+
+        envs = {tid: orch._isolation_env(tid) for tid in ("a", "b", "c")}
+        # task-id 注入
+        assert envs["a"]["KIRO_CONDUIT_TASK_ID"] == "a"
+        # 端口区间按字母序索引递增、互不重叠
+        ports = {tid: int(e["KIRO_CONDUIT_PORT_BASE"]) for tid, e in envs.items()}
+        assert ports == {"a": 5000, "b": 5100, "c": 5200}
+        # scratch 各自独立且已创建
+        scratches = {e["KIRO_CONDUIT_SCRATCH"] for e in envs.values()}
+        assert len(scratches) == 3
+        assert all(Path(s).is_dir() for s in scratches)
+        # 确定性：再算一次结果一致
+        assert orch._isolation_env("a") == envs["a"]
+
+    @pytest.mark.asyncio
     async def test_constructor_validation(self, real_repo: Path, tmp_path: Path) -> None:
         ws_dir = tmp_path / "ws"
         ws_dir.mkdir()

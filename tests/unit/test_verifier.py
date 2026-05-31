@@ -27,6 +27,28 @@ def _make_success_result() -> TaskResult:
     )
 
 
+class TestVerifyEnvInjection:
+    @pytest.mark.asyncio
+    async def test_injected_env_reaches_command(self, tmp_path: Path) -> None:
+        """注入的 env 应能被验证命令读到。"""
+        task = Task(
+            id="t1", prompt="d", cwd=tmp_path,
+            acceptance=['test "$KC_X" = "42"'], env={"KC_X": "42"},
+        )
+        result = await Verifier().verify(task, _make_success_result())
+        assert result.passed
+
+    @pytest.mark.asyncio
+    async def test_without_env_same_command_fails(self, tmp_path: Path) -> None:
+        """不注入时同一命令失败，证明确实靠注入（而非环境里本就有）。"""
+        task = Task(
+            id="t1", prompt="d", cwd=tmp_path,
+            acceptance=['test "$KC_X" = "42"'], env={},
+        )
+        result = await Verifier().verify(task, _make_success_result())
+        assert not result.passed
+
+
 class TestClassify:
     def test_pytest_goes_to_dynamic(self) -> None:
         static, dynamic = Verifier._classify(["ruff check .", "pytest -q"])

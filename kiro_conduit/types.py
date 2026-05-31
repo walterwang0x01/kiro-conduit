@@ -36,6 +36,7 @@ class Task:
     prompt: str
     cwd: Path
     acceptance: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)  # 验证命令的隔离环境变量
 
     def __post_init__(self) -> None:
         if not self.cwd.is_absolute():

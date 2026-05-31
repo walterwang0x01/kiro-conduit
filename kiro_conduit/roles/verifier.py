@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -92,7 +93,7 @@ class Verifier:
                 )
             )
         else:
-            r1 = await self._run_layer(VerifyLayer.STATIC, static_cmds, task.cwd)
+            r1 = await self._run_layer(VerifyLayer.STATIC, static_cmds, task.cwd, task.env)
             layers.append(r1)
             if not r1.passed:
                 all_passed = False
@@ -118,7 +119,7 @@ class Verifier:
                 )
             )
         else:
-            r2 = await self._run_layer(VerifyLayer.DYNAMIC, dynamic_cmds, task.cwd)
+            r2 = await self._run_layer(VerifyLayer.DYNAMIC, dynamic_cmds, task.cwd, task.env)
             layers.append(r2)
             if not r2.passed:
                 all_passed = False
@@ -260,11 +261,12 @@ class Verifier:
         layer: VerifyLayer,
         commands: list[str],
         cwd: Path,
+        env: dict[str, str] | None = None,
     ) -> LayerResult:
         outputs: list[str] = []
         for cmd in commands:
             logger.info("[verifier %s] $ %s", layer, cmd)
-            code, output = await self._run_shell(cmd, cwd)
+            code, output = await self._run_shell(cmd, cwd, env)
             outputs.append(f"$ {cmd}\n{output}\n[exit={code}]")
             if code != 0:
                 return LayerResult(
@@ -280,10 +282,15 @@ class Verifier:
             skipped=False,
         )
 
-    async def _run_shell(self, cmd: str, cwd: Path) -> tuple[int, str]:
+    async def _run_shell(
+        self, cmd: str, cwd: Path, env: dict[str, str] | None = None
+    ) -> tuple[int, str]:
+        # 注入的隔离 env 覆盖到继承的环境之上（端口区间 / scratch / task-id 等）
+        proc_env = {**os.environ, **env} if env else None
         proc = await asyncio.create_subprocess_shell(
             cmd,
             cwd=str(cwd),
+            env=proc_env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )

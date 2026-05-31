@@ -88,6 +88,7 @@ class ParallelOrchestrator:
         model_routing: dict[str, str] | None = None,
         event_bus: EventBus | None = None,
         resume: bool = False,
+        isolation_base_port: int = 4100,
     ) -> None:
         if not base_repo.is_absolute():
             raise ValueError(f"base_repo must be absolute, got {base_repo}")
@@ -109,6 +110,8 @@ class ParallelOrchestrator:
         # resume：True 时读上次 run-state，跳过已 passed 的 task。
         # 写 state 始终开启（不受此标志控制），让任意一次跑都能被后续 resume。
         self._resume = resume
+        # 运行时隔离：每个 task 的验证命令拿到一个不冲突的端口区间起点。
+        self._isolation_base_port = isolation_base_port
 
     async def run(self, base_branch: str = "main") -> ParallelRunReport:
         """跑全工作区：所有波次依次执行，波内并行。
@@ -534,7 +537,23 @@ class ParallelOrchestrator:
             prompt=prompt,
             cwd=worktree_path,
             acceptance=list(task_def.acceptance),
+            env=self._isolation_env(task_def.id),
         )
+
+    def _isolation_env(self, task_id: str) -> dict[str, str]:
+        """每个 task 的确定性运行时隔离 env：不冲突的端口区间 + 独立 scratch 目录。
+
+        用户在测试/应用配置里读这些变量，避免并行 task 撞端口/DB/共享状态。
+        """
+        index = sorted(self._workspace.tasks).index(task_id)
+        port_base = self._isolation_base_port + index * 100
+        scratch = self._base_repo / ".kiro-conduit" / "scratch" / task_id
+        scratch.mkdir(parents=True, exist_ok=True)
+        return {
+            "KIRO_CONDUIT_TASK_ID": task_id,
+            "KIRO_CONDUIT_PORT_BASE": str(port_base),
+            "KIRO_CONDUIT_SCRATCH": str(scratch),
+        }
 
     @staticmethod
     def _make_crash_outcome(task_id: str, exc: BaseException) -> CoordinatorOutcome:
