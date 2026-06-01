@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 from pathlib import Path
 
 from kiro_conduit.dag import Workspace, load_workspace
@@ -57,6 +58,14 @@ def _resolve_dag(workspace: str) -> Path:
     if p.is_file():
         return p
     raise SystemExit(f"workspace not found: {p}")
+
+
+def _venv_path_prepend(venv: Path, current_path: str) -> str:
+    """把 venv 的 bin 目录前置到 PATH，让 verifier / kiro-cli 用该 venv 的工具。"""
+    bin_dir = (venv / "bin").expanduser()
+    if not bin_dir.is_dir():
+        raise SystemExit(f"--venv: {bin_dir} 不存在（不是有效的 venv）")
+    return f"{bin_dir.resolve()}{os.pathsep}{current_path}"
 
 
 def _print_parallel_report(ws: Workspace, report: ParallelRunReport) -> None:
@@ -108,6 +117,10 @@ async def _run(args: argparse.Namespace) -> int:
         if args.base_repo
         else dag_path.parent
     )
+    if args.venv:
+        os.environ["PATH"] = _venv_path_prepend(
+            Path(args.venv).expanduser(), os.environ.get("PATH", "")
+        )
     print(f"✓ workspace: {dag_path}")
     print(f"  base repo: {base_repo}")
     log_path = (
@@ -265,6 +278,11 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument(
         "--base-branch", default=None,
         help="branch to base work on / integrate into (default: the repo's current branch)",
+    )
+    run_p.add_argument(
+        "--venv", default=None,
+        help="venv whose bin/ is prepended to PATH so verification (pytest/lint) "
+             "and kiro-cli run with your project's tools (default: inherit current PATH)",
     )
     run_p.add_argument("--max-concurrency", type=int, default=4)
     run_p.add_argument("--max-attempts", type=int, default=3)

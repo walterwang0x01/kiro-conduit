@@ -11,7 +11,7 @@ from textwrap import dedent
 
 import pytest
 
-from kiro_conduit.cli import _resolve_dag, main
+from kiro_conduit.cli import _resolve_dag, _venv_path_prepend, main
 from kiro_conduit.merge import MergeOrchestrator, MergeReport, TaskMergeResult
 from kiro_conduit.orchestrator import ParallelOrchestrator, ParallelRunReport
 from kiro_conduit.roles.coordinator import CoordinatorOutcome
@@ -278,3 +278,16 @@ class TestMain:
         code = main(["run", "--workspace", str(ws), "--merge"])
         assert code == 1
         assert called["merge"] is False  # 失败时不该进 merge
+
+
+class TestVenvPathPrepend:
+    """--venv：把 venv/bin 前置到 PATH。"""
+
+    def test_prepends_existing_venv_bin(self, tmp_path: Path) -> None:
+        (tmp_path / "bin").mkdir()
+        out = _venv_path_prepend(tmp_path, "/usr/bin:/bin")
+        assert out == f"{(tmp_path / 'bin').resolve()}:/usr/bin:/bin"
+
+    def test_rejects_missing_venv(self, tmp_path: Path) -> None:
+        with pytest.raises(SystemExit, match="venv"):
+            _venv_path_prepend(tmp_path / "nope", "/usr/bin")

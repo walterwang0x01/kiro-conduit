@@ -12,6 +12,26 @@ pip install -e '.[dev]'        # 开发安装（仓库内）
 
 前提：已装并登录 [Kiro CLI](https://github.com/kirodotdev/Kiro)（`kiro-cli` 在 PATH 上）。
 
+## 用在你自己的项目上（最短用法）
+
+```bash
+pipx install kiro-conduit              # 全局隔离安装，kiro-conduit 进 PATH
+cd my-project                          # 你的 git 仓库
+kiro-conduit run \
+  --workspace ./my-spec-ws \           # 含 dag.yaml + specs 的目录
+  --base-repo . \                      # 代码写进当前仓库（spec 与代码同仓库时可省略）
+  --venv .venv                         # 用本项目 venv 跑验证（见下）
+```
+
+**唯一必填的是 `--workspace`**，其余都有默认值（`--base-repo` 默认 = workspace 目录、
+`--base-branch` 默认 = 仓库当前分支、默认 review 模式不合并）。
+
+> ⚠️ **一个必须理解的点**：verifier 跑的是**你仓库自己的** acceptance 命令（`pytest` /
+> `ruff` 等），所以它得在**你仓库的环境**里跑。两种方式二选一：
+> - 跑之前 `source .venv/bin/activate`（最简单），或
+> - 用 `--venv .venv` 显式指定 —— kiro-conduit 会把 `.venv/bin` 前置到 PATH，
+>   verifier 和 kiro-cli 都用这个 venv 的工具，不必事先激活。
+
 ## workspace 结构
 
 一个目录，含 `dag.yaml` + 各 task 的 spec markdown：
@@ -80,6 +100,7 @@ kiro-conduit run --workspace my-workspace/ --merge
 | `--workspace <dir>` | 含 `dag.yaml` 的目录（或直接传 `dag.yaml` 路径） |
 | `--base-repo <dir>` | 目标 git 仓库（默认 = workspace 目录） |
 | `--base-branch <name>` | base 分支（默认 = 仓库当前分支） |
+| `--venv <dir>` | 把该 venv 的 `bin/` 前置到 PATH，让验证（pytest/lint）和 kiro-cli 用你项目的工具（默认继承当前 PATH） |
 | `--merge` | 合并通过的 task 分支回 base（默认不合，只产出分支供 review） |
 | `--resume` | 从上次 run-state 续跑，已通过的 task 不重跑 |
 | `--dashboard` | rich 实时 TUI（wave / worker / 锁 / merge 状态） |
