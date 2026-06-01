@@ -152,6 +152,18 @@ class TestVerifyImplementorFailure:
         result = await Verifier().verify(task, no_change)
         assert not result.passed
 
+    @pytest.mark.asyncio
+    async def test_no_changes_fails_when_no_acceptance(self, tmp_path: Path) -> None:
+        """没改文件且完全没 acceptance 命令 → 无从验证，判失败（不当 PASS）。"""
+        task = _make_task(tmp_path, [])  # 无任何 acceptance
+        no_change = TaskResult(
+            task_id="t1", success=False, diff="", files_changed=[],
+            error="no files changed", no_changes=True,
+        )
+        result = await Verifier().verify(task, no_change)
+        assert not result.passed
+        assert "no acceptance" in result.feedback
+
 
 class TestVerifyTimeout:
     @pytest.mark.asyncio

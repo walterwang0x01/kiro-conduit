@@ -80,6 +80,16 @@ class Verifier:
 
         static_cmds, dynamic_cmds = self._classify(task.acceptance)
 
+        # no_changes 且没有任何 acceptance 命令 → 无从验证目标是否达成，判失败
+        # （避免"agent 啥也没干、又没东西可验"被误当 PASS）。
+        if result.no_changes and not static_cmds and not dynamic_cmds:
+            return VerifyResult(
+                task_id=task.id,
+                passed=False,
+                layers=[],
+                feedback="no files changed and no acceptance commands to verify",
+            )
+
         layers: list[LayerResult] = []
         feedback_parts: list[str] = []
         all_passed = True
