@@ -75,6 +75,49 @@ async def test_prompt_streams_message_chunks_and_ends_with_turn_end(
 
 
 @pytest.mark.asyncio
+async def test_large_message_line_does_not_crash_reader(
+    mock_acp_config: Callable[[dict[str, Any]], AcpClientConfig],
+    tmp_path: Any,
+) -> None:
+    """单条 ACP 消息含大文件内容（>asyncio 默认 64KB 行上限）时仍能正常读到。
+
+    回归：曾因 StreamReader 默认 limit 抛 LimitOverrunError 导致 reader 崩溃、task 卡死。
+    """
+    big = "x" * 200_000  # 约 200KB，远超默认 64KB
+    script: dict[str, Any] = {
+        "initialize_response": {
+            "protocolVersion": 1,
+            "agentCapabilities": {"loadSession": True},
+            "authMethods": [],
+            "agentInfo": {"name": "mock", "title": "mock", "version": "0"},
+        },
+        "session_new_response": {"sessionId": "s1"},
+        "prompt_responses": [
+            {
+                "notifications": [
+                    {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": big},
+                    },
+                ],
+                "result": {"stopReason": "end_turn"},
+            }
+        ],
+    }
+    cfg = mock_acp_config(script)
+    got = ""
+    async with await AcpClient.spawn(cfg) as client:
+        await client.initialize()
+        sid = await client.new_session(cwd=tmp_path)
+        async for event in await client.prompt(sid, "go"):
+            if isinstance(event, AgentMessageChunk):
+                got = event.text
+            elif isinstance(event, TurnEnd):
+                break
+    assert got == big
+
+
+@pytest.mark.asyncio
 async def test_tool_call_events_propagate(
     mock_acp_config: Callable[[dict[str, Any]], AcpClientConfig],
     tmp_path: Any,

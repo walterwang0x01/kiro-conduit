@@ -45,6 +45,10 @@ from kiro_conduit.acp.messages import (
 
 logger = logging.getLogger(__name__)
 
+# ACP 消息按行(\n)分隔的 JSON-RPC，单条消息可能含大文件内容/大 diff，
+# 远超 asyncio StreamReader 默认 64KB 行上限（超了 readline 会抛 LimitOverrunError）。
+_STREAM_LIMIT = 64 * 1024 * 1024  # 64 MiB
+
 
 # ---------------------------------------------------------------------------
 # 配置
@@ -116,6 +120,7 @@ class AcpClient:
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cfg.cwd) if cfg.cwd else None,
             env=env,
+            limit=_STREAM_LIMIT,
         )
         client = cls(proc, cfg)
         client._reader_task = asyncio.create_task(client._read_stdout(), name="acp-reader")
