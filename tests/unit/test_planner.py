@@ -129,6 +129,20 @@ class TestRenderAndWrite:
         with pytest.raises(PlanError, match="cycle"):
             write_plan(tasks, tmp_path / "ws")
 
+    def test_write_plan_overlap_raises_planerror_but_keeps_files(
+        self, tmp_path: Path
+    ) -> None:
+        """files_owned 重叠 → 校验失败应转成 PlanError（不是裸 DagError），
+        且 dag.yaml 仍落盘，供人按提示修正。"""
+        tasks = [
+            TaskPlan(id="a", prompt="a", files_owned=["src/x.py"]),
+            TaskPlan(id="b", prompt="b", files_owned=["src/x.py"]),
+        ]
+        out = tmp_path / "ws"
+        with pytest.raises(PlanError, match="校验"):
+            write_plan(tasks, out)
+        assert (out / "dag.yaml").is_file()  # 产物保留，供手动修正
+
 
 class TestPlanPrompt:
     """PLAN_PROMPT 应指示把项目 linter 纳入每个 task 的 acceptance。"""

@@ -29,7 +29,7 @@ from typing import Any
 
 import yaml
 
-from kiro_conduit.dag import load_workspace
+from kiro_conduit.dag import DagError, load_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -164,8 +164,17 @@ def write_plan(tasks: list[TaskPlan], out_dir: Path) -> Path:
         (specs_dir / f"{t.id}.md").write_text(t.prompt + "\n", encoding="utf-8")
     dag_path = out_dir / "dag.yaml"
     dag_path.write_text(render_dag_yaml(tasks), encoding="utf-8")
-    # 校验：能加载 + DAG 合法（无环 / 依赖存在 / 每个 task 在某 phase）
-    load_workspace(dag_path)
+    # 校验：能加载 + DAG 合法（无环 / 依赖存在 / files_owned 不重叠 / 每个 task 在某 phase）。
+    # LLM 拆分常在 files_owned 边界等细节出错——失败时不甩 traceback，转成带指引的
+    # PlanError；产物已落盘，留给人按提示修正（这正是 plan 必须人工 review 的一步）。
+    try:
+        load_workspace(dag_path)
+    except DagError as exc:
+        raise PlanError(
+            f"生成的 dag.yaml 没通过校验：{exc}\n"
+            f"  dag.yaml + specs/ 已写到 {out_dir}，请手动修正后再 run "
+            f"（plan 的产物本就需要人工 review，不能直接跑）。"
+        ) from exc
     return dag_path
 
 
