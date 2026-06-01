@@ -306,6 +306,43 @@ class TestSummaryTable:
         assert "<default>" in out  # t1 没声明模型 → <default>
 
 
+class TestReviewFlag:
+    """--review：把 KiroSemanticReviewer 接进 orchestrator（默认关）。"""
+
+    def _spy_reviewer(
+        self, monkeypatch: pytest.MonkeyPatch, ws: Path, argv: list[str]
+    ) -> object:
+        captured: dict[str, object] = {}
+        orig_init = ParallelOrchestrator.__init__
+
+        def spy_init(self, *a, **k):  # type: ignore[no-untyped-def]
+            captured["reviewer"] = k.get("semantic_reviewer")
+            orig_init(self, *a, **k)
+
+        async def fake_run(self, base_branch: str = "main") -> ParallelRunReport:  # type: ignore[no-untyped-def]
+            return ParallelRunReport(
+                outcomes={"t1": _passing("t1")}, skipped=(), handles={}
+            )
+
+        monkeypatch.setattr(ParallelOrchestrator, "__init__", spy_init)
+        monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
+        main(["run", "--workspace", str(ws), *argv])
+        return captured["reviewer"]
+
+    def test_review_wires_reviewer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from kiro_conduit.semantic import KiroSemanticReviewer
+
+        reviewer = self._spy_reviewer(monkeypatch, _write_ws(tmp_path), ["--review"])
+        assert isinstance(reviewer, KiroSemanticReviewer)
+
+    def test_no_review_by_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert self._spy_reviewer(monkeypatch, _write_ws(tmp_path), []) is None
+
+
 class TestVenvPathPrepend:
     """--venv：把 venv/bin 前置到 PATH。"""
 

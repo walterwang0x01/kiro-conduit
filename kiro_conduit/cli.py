@@ -160,6 +160,14 @@ async def _run(args: argparse.Namespace) -> int:
     print(summary)
 
     bus = EventBus() if args.dashboard else None
+    reviewer = None
+    if args.review:
+        from kiro_conduit.semantic import KiroSemanticReviewer
+
+        reviewer = KiroSemanticReviewer(
+            kiro_cli_path=args.kiro_cli, model=args.review_model
+        )
+        print("  semantic review: ON（Layer 3 对照 spec 审查 diff）")
     orch = ParallelOrchestrator(
         workspace=ws,
         base_repo=base_repo,
@@ -168,6 +176,7 @@ async def _run(args: argparse.Namespace) -> int:
         kiro_cli_path=args.kiro_cli,
         resume=args.resume,
         event_bus=bus,
+        semantic_reviewer=reviewer,
     )
 
     report = await _run_parallel(orch, ws, bus, base_branch)
@@ -297,6 +306,15 @@ def main(argv: list[str] | None = None) -> int:
         "--venv", default=None,
         help="venv whose bin/ is prepended to PATH so verification (pytest/lint) "
              "and kiro-cli run with your project's tools (default: inherit current PATH)",
+    )
+    run_p.add_argument(
+        "--review", action="store_true",
+        help="enable Layer 3 semantic review: a separate kiro-cli reviews each "
+             "task's diff against its spec (catches spec drift tests miss; default off)",
+    )
+    run_p.add_argument(
+        "--review-model", default=None,
+        help="model id for the semantic reviewer (default: Kiro default)",
     )
     run_p.add_argument("--max-concurrency", type=int, default=4)
     run_p.add_argument("--max-attempts", type=int, default=3)

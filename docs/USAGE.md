@@ -101,6 +101,8 @@ kiro-conduit run --workspace my-workspace/ --merge
 | `--base-repo <dir>` | 目标 git 仓库（默认 = workspace 目录） |
 | `--base-branch <name>` | base 分支（默认 = 仓库当前分支） |
 | `--venv <dir>` | 把该 venv 的 `bin/` 前置到 PATH，让验证（pytest/lint）和 kiro-cli 用你项目的工具（默认继承当前 PATH） |
+| `--review` | 启用 Layer 3 语义评审：另起一个 kiro-cli 子进程，对照每个 task 的 spec 审查它的 diff，抓"测试发现不了的 spec 漂移"（如某接口没按 spec 切鉴权）。默认关 |
+| `--review-model <id>` | 语义评审用的模型（默认 Kiro 默认模型） |
 | `--merge` | 合并通过的 task 分支到 `kiro-conduit/integration`（默认不合，只产出分支供 review）。**部分任务失败时，仍会把已通过的合进 integration 并报告失败项**，不会因一个失败丢掉全部成果 |
 | `--resume` | 从上次 run-state 续跑，已通过的 task 不重跑 |
 | `--dashboard` | rich 实时 TUI（wave / worker / 锁 / merge 状态） |
