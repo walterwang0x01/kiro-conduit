@@ -255,29 +255,34 @@ class TestMain:
         assert code == 0
         assert captured["bb"] == "feature/x"  # 跟随当前分支，不是 main
 
-    def test_run_failed_tasks_skip_merge_exit1(
+    def test_run_failed_tasks_merge_passed_exit1(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         ws = _write_ws(tmp_path)
 
         async def fake_run(self, base_branch: str = "main") -> ParallelRunReport:  # type: ignore[no-untyped-def]
-            # 有 skipped → all_passed False
+            # t1 通过、t2 跳过 → all_passed False，但仍应合并 t1
             return ParallelRunReport(
                 outcomes={"t1": _passing("t1")}, skipped=("t2",), handles={}
             )
 
-        called = {"merge": False}
+        seen: dict[str, object] = {}
 
-        async def fake_merge(self, *a, **k):  # type: ignore[no-untyped-def]
-            called["merge"] = True
-            return MergeReport(results={}, stopped_at=None)
+        async def fake_merge(  # type: ignore[no-untyped-def]
+            self, handles, successful_task_ids, base_branch="main", commit_messages=None
+        ):
+            seen["ids"] = set(successful_task_ids)
+            return MergeReport(
+                results={"t1": TaskMergeResult(task_id="t1", merged=True)},
+                stopped_at=None,
+            )
 
         monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
         monkeypatch.setattr(MergeOrchestrator, "merge", fake_merge)
-        # 即使显式 --merge，任务失败也应短路，不进 merge
+        # 部分失败 + --merge：仍合并通过的（只传 t1），但退出码非 0
         code = main(["run", "--workspace", str(ws), "--merge"])
         assert code == 1
-        assert called["merge"] is False  # 失败时不该进 merge
+        assert seen["ids"] == {"t1"}  # 只合通过的，不含跳过的 t2
 
 
 class TestVenvPathPrepend:

@@ -165,17 +165,19 @@ async def _run(args: argparse.Namespace) -> int:
     report = await _run_parallel(orch, ws, bus, base_branch)
     _print_parallel_report(ws, report)
 
-    if not report.all_passed:
-        print("\n✗ not all tasks passed; not merging")
-        _print_review_hint(report, base_branch)
-        return 1
+    successful = {tid for tid, out in report.outcomes.items() if out.passed}
 
     if not args.merge:
         # 默认：产出分支供 review，不自动合并（review-and-accept）
         _print_review_hint(report, base_branch)
-        return 0
+        return 0 if report.all_passed else 1
 
-    successful = {tid for tid, out in report.outcomes.items() if out.passed}
+    if not successful:
+        print("\n✗ 没有任何任务通过，无可合并")
+        return 1
+
+    # 即便部分任务失败/跳过，也把已通过的组装进 kiro-conduit/integration，
+    # 给一个可 review / 可用的集成结果（而不是因一个失败丢掉全部成果）。
     merger = MergeOrchestrator(ws, base_repo, event_bus=bus, diagnose=args.diagnose)
     merge_report = await merger.merge(
         handles=report.handles,
@@ -183,7 +185,11 @@ async def _run(args: argparse.Namespace) -> int:
         base_branch=base_branch,
     )
     _print_merge_report(merge_report)
-    return 0 if merge_report.all_merged else 1
+    if not report.all_passed:
+        print(
+            "\n⚠ 部分任务失败/跳过：已把通过的合进 integration，失败项见上方报告。"
+        )
+    return 0 if (report.all_passed and merge_report.all_merged) else 1
 
 
 def _print_review_hint(report: ParallelRunReport, base_branch: str) -> None:
