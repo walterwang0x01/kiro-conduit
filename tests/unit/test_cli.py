@@ -285,6 +285,27 @@ class TestMain:
         assert seen["ids"] == {"t1"}  # 只合通过的，不含跳过的 t2
 
 
+class TestSummaryTable:
+    """跑完的 per-task 汇总表。"""
+
+    def test_report_shows_model_and_attempts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        ws = _write_ws(tmp_path)
+
+        async def fake_run(self, base_branch: str = "main") -> ParallelRunReport:  # type: ignore[no-untyped-def]
+            return ParallelRunReport(
+                outcomes={"t1": _passing("t1")}, skipped=(), handles={}
+            )
+
+        monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
+        main(["run", "--workspace", str(ws)])  # review 模式
+        out = capsys.readouterr().out
+        assert "model" in out and "att" in out  # 表头
+        assert "<default>" in out  # t1 没声明模型 → <default>
+
+
 class TestVenvPathPrepend:
     """--venv：把 venv/bin 前置到 PATH。"""
 

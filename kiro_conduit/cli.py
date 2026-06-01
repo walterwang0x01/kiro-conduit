@@ -71,13 +71,21 @@ def _venv_path_prepend(venv: Path, current_path: str) -> str:
 def _print_parallel_report(ws: Workspace, report: ParallelRunReport) -> None:
     print(f"\n✓ parallel phase: passed={report.passed_count} "
           f"failed={report.failed_count} skipped={len(report.skipped)}")
-    for tid in sorted(ws.tasks):
+    tids = sorted(ws.tasks)
+    tw = max((len(t) for t in tids), default=4)
+    mw = max((len(ws.tasks[t].model or "<default>") for t in tids), default=5)
+    print(f"  {'':1} {'task':<{tw}}  {'model':<{mw}}  {'status':<7}  att  files")
+    for tid in tids:
+        model = ws.tasks[tid].model or "<default>"
         out = report.outcomes.get(tid)
         if out is None:
-            print(f"  - {tid}: skipped (upstream failed)")
+            print(f"  - {tid:<{tw}}  {model:<{mw}}  {'skipped':<7}")
             continue
         mark = "✓" if out.passed else "✗"
-        print(f"  {mark} {tid}: passed={out.passed} attempts={out.attempts}")
+        status = "passed" if out.passed else "failed"
+        files = len(out.last_task_result.files_changed)
+        print(f"  {mark} {tid:<{tw}}  {model:<{mw}}  {status:<7}  "
+              f"{out.attempts:<3}  {files}")
 
 
 def _print_merge_report(report: MergeReport) -> None:
