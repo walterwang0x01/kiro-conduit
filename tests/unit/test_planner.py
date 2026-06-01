@@ -8,6 +8,7 @@ import pytest
 
 from kiro_conduit.dag import load_workspace, topological_waves
 from kiro_conduit.planner import (
+    PLAN_PROMPT,
     PlanError,
     TaskPlan,
     compute_layers,
@@ -127,3 +128,10 @@ class TestRenderAndWrite:
         ]
         with pytest.raises(PlanError, match="cycle"):
             write_plan(tasks, tmp_path / "ws")
+
+
+class TestPlanPrompt:
+    """PLAN_PROMPT 应指示把项目 linter 纳入每个 task 的 acceptance。"""
+
+    def test_prompt_requires_linter_in_acceptance(self) -> None:
+        assert "linter" in PLAN_PROMPT and "ruff check" in PLAN_PROMPT
