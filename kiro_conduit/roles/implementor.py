@@ -40,10 +40,12 @@ class Implementor:
         model: str | None = None,
         max_retries: int = 2,
         retry_base_delay: float = 1.0,
+        sandbox: bool = False,
     ) -> None:
         self._kiro_cli_path = kiro_cli_path
         self._prompt_timeout = prompt_timeout
         self._model = model
+        self._sandbox = sandbox
         # 瞬时基础设施错误（超时 / 连接）时的退避重试。max_retries=2 → 最多跑 3 次。
         self._max_retries = max_retries
         self._retry_base_delay = retry_base_delay
@@ -132,6 +134,7 @@ class Implementor:
             cwd=task.cwd,
             response_timeout=self._prompt_timeout,
             model=self._model,
+            sandbox_writable=(task.cwd,) if self._sandbox else None,
         )
         transcript_parts: list[str] = []
         async with await AcpClient.spawn(config) as client:

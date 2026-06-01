@@ -102,6 +102,7 @@ class ParallelOrchestrator:
         resume: bool = False,
         isolation_base_port: int = 4100,
         setup_timeout: float = 900.0,
+        sandbox: bool = False,
     ) -> None:
         if not base_repo.is_absolute():
             raise ValueError(f"base_repo must be absolute, got {base_repo}")
@@ -114,6 +115,7 @@ class ParallelOrchestrator:
         self._kiro_cli_path = kiro_cli_path
         self._prompt_timeout = prompt_timeout
         self._setup_timeout = setup_timeout
+        self._sandbox = sandbox
         self._semantic_reviewer = semantic_reviewer
         self._review_timeout = review_timeout
         # BYOA 模型路由：role 名 → model id。已知 role：'implementor'。
@@ -435,6 +437,7 @@ class ParallelOrchestrator:
                     lock_manager=lock_manager,
                     shared_files=task_def.shared_files_to_modify,
                     model=task_def.model or self._model_routing.get("implementor"),
+                    sandbox=self._sandbox,
                 ),
                 verifier=Verifier(
                     contract_baselines=contract_baselines,
@@ -730,11 +733,13 @@ class _LockAwareImplementor(Implementor):
         lock_manager: SharedFileLockManager,
         shared_files: tuple[str, ...],
         model: str | None = None,
+        sandbox: bool = False,
     ) -> None:
         super().__init__(
             kiro_cli_path=kiro_cli_path,
             prompt_timeout=prompt_timeout,
             model=model,
+            sandbox=sandbox,
         )
         self._lock_manager = lock_manager
         self._shared_files = shared_files

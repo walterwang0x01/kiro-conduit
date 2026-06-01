@@ -76,6 +76,8 @@ class AcpClientConfig:
     # 启动时通过 --model 指定模型（None = 用 Kiro 默认）。
     # 用于 BYOA 路由：Implementor 跟 KiroSemanticReviewer 可以选不同模型。
     model: str | None = None
+    # opt-in OS 写入沙箱：非 None 时把 kiro-cli 子进程包进沙箱，只允许写这些目录。
+    sandbox_writable: tuple[Path, ...] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +114,10 @@ class AcpClient:
         cmd = [cfg.kiro_cli_path, *cfg.extra_args]
         if cfg.model:
             cmd.extend(["--model", cfg.model])
+        if cfg.sandbox_writable:
+            from kiro_conduit.sandbox import wrap_command
+
+            cmd = wrap_command(cmd, list(cfg.sandbox_writable))
         logger.debug("spawning ACP subprocess: %s (cwd=%s)", cmd, cfg.cwd)
         proc = await asyncio.create_subprocess_exec(
             *cmd,

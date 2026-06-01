@@ -251,6 +251,7 @@ async def _run(args: argparse.Namespace) -> int:
         resume=args.resume,
         event_bus=bus,
         semantic_reviewer=reviewer,
+        sandbox=args.sandbox,
     )
 
     report = await _run_parallel(orch, ws, bus, base_branch)
@@ -393,6 +394,12 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument(
         "--review-model", default=None,
         help="model id for the semantic reviewer (default: Kiro default)",
+    )
+    run_p.add_argument(
+        "--sandbox", action="store_true",
+        help="[experimental] confine kiro-cli writes to the task worktree via an "
+             "OS sandbox (macOS Seatbelt / Linux bwrap); reads+network stay open; "
+             "no-op if the OS tool is unavailable (default off)",
     )
     run_p.add_argument("--max-concurrency", type=int, default=4)
     run_p.add_argument("--max-attempts", type=int, default=3)
