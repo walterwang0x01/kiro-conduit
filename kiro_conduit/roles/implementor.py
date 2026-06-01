@@ -105,8 +105,9 @@ class Implementor:
                 success=False,
                 diff="",
                 files_changed=[],
-                error="no files changed (agent may have refused or misunderstood)",
+                error="no files changed",
                 transcript="".join(transcript_parts),
+                no_changes=True,
             )
 
         return TaskResult(

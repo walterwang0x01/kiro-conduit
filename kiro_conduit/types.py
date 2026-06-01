@@ -53,6 +53,7 @@ class TaskResult:
     files_changed: list[str] = field(default_factory=list)
     error: str | None = None
     transcript: str = ""  # Implementor 的全部输出，方便调试
+    no_changes: bool = False  # 没改任何文件（可能是依赖已做掉，由 verifier 判定真假）
 
 
 class VerifyLayer(StrEnum):

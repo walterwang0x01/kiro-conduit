@@ -129,6 +129,29 @@ class TestVerifyImplementorFailure:
         # 没跑任何层
         assert result.layers == []
 
+    @pytest.mark.asyncio
+    async def test_no_changes_passes_when_acceptance_passes(self, tmp_path: Path) -> None:
+        """没改文件但 acceptance 通过（依赖已做掉的幂等任务）→ PASS，不再误判失败。"""
+        task = _make_task(tmp_path, ["true"])
+        no_change = TaskResult(
+            task_id="t1", success=False, diff="", files_changed=[],
+            error="no files changed", no_changes=True,
+        )
+        result = await Verifier().verify(task, no_change)
+        assert result.passed  # acceptance 过 → 通过
+        assert result.layers  # 确实跑了验证层（而非短路）
+
+    @pytest.mark.asyncio
+    async def test_no_changes_fails_when_acceptance_fails(self, tmp_path: Path) -> None:
+        """没改文件且 acceptance 不过（agent 真摆烂、目标没达成）→ 仍判失败。"""
+        task = _make_task(tmp_path, ["false"])
+        no_change = TaskResult(
+            task_id="t1", success=False, diff="", files_changed=[],
+            error="no files changed", no_changes=True,
+        )
+        result = await Verifier().verify(task, no_change)
+        assert not result.passed
+
 
 class TestVerifyTimeout:
     @pytest.mark.asyncio

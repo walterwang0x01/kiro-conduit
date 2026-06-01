@@ -67,14 +67,16 @@ class Verifier:
 
     async def verify(self, task: Task, result: TaskResult) -> VerifyResult:
         """跑验证流水线。"""
-        if not result.success:
-            # Implementor 都没成功，没必要往下跑
+        if not result.success and not result.no_changes:
+            # Implementor 真出错（ACP/ git 失败），没必要往下跑
             return VerifyResult(
                 task_id=task.id,
                 passed=False,
                 layers=[],
                 feedback=f"Implementor failed: {result.error}",
             )
+        # no_changes：可能是依赖已把活干了（幂等/wiring 任务）。不直接判失败，
+        # 照常跑 acceptance —— 过了就算 PASS，没过才是真失败。
 
         static_cmds, dynamic_cmds = self._classify(task.acceptance)
 
