@@ -116,6 +116,51 @@ async def _review_integration(
     print(f"\n🔎 集成 AI 初审: {flag} — 详见 {report_path}")
 
 
+async def _integration_check(
+    ws: Workspace, base_repo: Path, base_branch: str
+) -> bool | None:
+    """合并后对集成结果跑全量验证命令（独立 worktree，带 copy_files）。
+
+    返回 True/False=跑了且通过/失败；None=没配 integration_check 或没法建 worktree。
+    """
+    cmd = ws.integration_check
+    if not cmd:
+        return None
+    import shutil
+
+    from kiro_conduit.git_utils import run_git
+
+    code, _o, _e = await run_git(
+        base_repo,
+        ["rev-parse", "--verify", "--quiet", "refs/heads/kiro-conduit/integration"],
+    )
+    ref = "kiro-conduit/integration" if code == 0 else base_branch
+    wt = base_repo / ".kiro-conduit" / "intcheck"
+    await run_git(base_repo, ["worktree", "remove", "--force", str(wt)])
+    code, _o, err = await run_git(base_repo, ["worktree", "add", "--detach", str(wt), ref])
+    if code != 0:
+        print(f"\n⚠ 集成全量验证：无法创建 worktree：{err.strip()}")
+        return None
+    try:
+        for rel in ws.copy_files:
+            src = base_repo / rel
+            if src.is_file():
+                dst = wt / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+        proc = await asyncio.create_subprocess_shell(
+            cmd, cwd=str(wt),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        )
+        out_b, _ = await proc.communicate()
+        ok = proc.returncode == 0
+        print(f"\n🧪 集成全量验证: {'✅ PASS' if ok else '✗ FAIL'}  ($ {cmd})")
+        if not ok:
+            print(out_b.decode("utf-8", errors="replace")[-1500:])
+        return ok
+    finally:
+        await run_git(base_repo, ["worktree", "remove", "--force", str(wt)])
+
 
 def _print_merge_report(report: MergeReport) -> None:
     print("\n✓ merge phase:")
@@ -233,11 +278,13 @@ async def _run(args: argparse.Namespace) -> int:
     _print_merge_report(merge_report)
     if args.review:
         await _review_integration(args, base_repo, base_branch, dag_path.parent / "specs")
+    check_ok = await _integration_check(ws, base_repo, base_branch)
     if not report.all_passed:
         print(
             "\n⚠ 部分任务失败/跳过：已把通过的合进 integration，失败项见上方报告。"
         )
-    return 0 if (report.all_passed and merge_report.all_merged) else 1
+    ok = report.all_passed and merge_report.all_merged and check_ok is not False
+    return 0 if ok else 1
 
 
 def _print_review_hint(report: ParallelRunReport, base_branch: str) -> None:

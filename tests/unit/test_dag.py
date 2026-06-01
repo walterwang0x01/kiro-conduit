@@ -820,3 +820,43 @@ class TestCopyFiles:
         with pytest.raises(DagError, match="copy_files"):
             load_workspace(p)
 
+
+class TestIntegrationCheck:
+    """workspace 级 integration_check：合并后对集成结果跑的全量验证命令。"""
+
+    def test_parsed(self, tmp_path: Path) -> None:
+        p = write_dag(
+            tmp_path,
+            """
+            integration_check: pytest -q
+            phases:
+              - name: only
+                type: serial
+                tasks: [t1]
+            tasks:
+              t1: {spec: specs/t1.md}
+            shared_files: []
+            """,
+        )
+        assert load_workspace(p).integration_check == "pytest -q"
+
+    def test_defaults_none(self, tmp_path: Path) -> None:
+        assert load_workspace(write_dag(tmp_path, minimal_yaml())).integration_check is None
+
+    def test_blank_rejected(self, tmp_path: Path) -> None:
+        p = write_dag(
+            tmp_path,
+            """
+            integration_check: "  "
+            phases:
+              - name: only
+                type: serial
+                tasks: [t1]
+            tasks:
+              t1: {spec: specs/t1.md}
+            shared_files: []
+            """,
+        )
+        with pytest.raises(DagError, match="integration_check"):
+            load_workspace(p)
+

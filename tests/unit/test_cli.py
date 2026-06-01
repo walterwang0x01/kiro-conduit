@@ -343,6 +343,52 @@ class TestReviewFlag:
         assert self._spy_reviewer(monkeypatch, _write_ws(tmp_path), []) is None
 
 
+class TestIntegrationCheck:
+    """_integration_check：在集成结果上跑全量验证命令。"""
+
+    def _repo(self, tmp_path: Path) -> Path:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        for a in (
+            ["init", "-b", "main"], ["config", "user.email", "t@t.com"],
+            ["config", "user.name", "t"],
+        ):
+            subprocess.run(["git", *a], cwd=repo, check=True, capture_output=True)
+        (repo / "f.py").write_text("x = 1\n")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "i"], cwd=repo, check=True, capture_output=True)
+        return repo
+
+    @pytest.mark.asyncio
+    async def test_passing_command_returns_true(self, tmp_path: Path) -> None:
+        from kiro_conduit.cli import _integration_check
+        from kiro_conduit.dag import Workspace
+
+        repo = self._repo(tmp_path)
+        ws = Workspace(phases=(), tasks={}, shared_files=(), workspace_root=repo,
+                       integration_check="true")
+        assert await _integration_check(ws, repo, "main") is True
+
+    @pytest.mark.asyncio
+    async def test_failing_command_returns_false(self, tmp_path: Path) -> None:
+        from kiro_conduit.cli import _integration_check
+        from kiro_conduit.dag import Workspace
+
+        repo = self._repo(tmp_path)
+        ws = Workspace(phases=(), tasks={}, shared_files=(), workspace_root=repo,
+                       integration_check="false")
+        assert await _integration_check(ws, repo, "main") is False
+
+    @pytest.mark.asyncio
+    async def test_none_when_unset(self, tmp_path: Path) -> None:
+        from kiro_conduit.cli import _integration_check
+        from kiro_conduit.dag import Workspace
+
+        repo = self._repo(tmp_path)
+        ws = Workspace(phases=(), tasks={}, shared_files=(), workspace_root=repo)
+        assert await _integration_check(ws, repo, "main") is None
+
+
 class TestVenvPathPrepend:
     """--venv：把 venv/bin 前置到 PATH。"""
 

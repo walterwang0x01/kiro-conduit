@@ -138,6 +138,16 @@ copy_files: ['.env', 'config/local.yaml']
 
 在依赖合入之后、`setup` 之前执行，所以 `setup` 能用到拷进来的文件。
 
+### 集成结果全量验证（`integration_check`）
+
+各 task 只验证自己那一块；要确认"拼起来还能跑"，在 `dag.yaml` 顶层声明
+`integration_check` 命令——`--merge` 组装出集成分支后，在它的独立 worktree 里
+（已应用 `copy_files`）跑一次，报告通过与否，失败则整体退出码非 0：
+
+```yaml
+integration_check: pytest -q
+```
+
 ## 运行时隔离（并行跑测试不撞）
 
 并行 task 各自跑 acceptance 命令时共享端口/DB/状态会静默冲突。每个 task 的验证命令
