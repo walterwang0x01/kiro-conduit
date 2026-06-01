@@ -51,6 +51,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_TEST_HINT = ("test", "e2e", "regression")
+
+
+def _is_test_task(task_def: TaskDef) -> bool:
+    """启发式：task 看起来是测试任务（id 或所属文件含 test/e2e/regression）。
+
+    仅用于"被跳过时"的醒目提示——跳过测试任务会静默降低覆盖。
+    """
+    hay = (task_def.id, *task_def.files_owned)
+    return any(h in s for s in hay for h in _TEST_HINT)
+
 
 @dataclass(frozen=True, slots=True)
 class ParallelRunReport:
@@ -163,6 +174,18 @@ class ParallelOrchestrator:
                     wave, failed_tasks
                 )
                 skipped.extend(wave_skipped)
+                # 跳过也阻断下游：被跳过的任务加入 failed_tasks，让依赖它的后续
+                # 任务也被跳过（传递性），避免"依赖了被跳过任务却照跑"。
+                failed_tasks.update(wave_skipped)
+                if wave_skipped:
+                    test_ish = [t for t in wave_skipped if _is_test_task(self._workspace.task(t))]
+                    logger.warning(
+                        "[orchestrator] skipped %d task(s) due to upstream "
+                        "failure/skip: %s%s",
+                        len(wave_skipped),
+                        wave_skipped,
+                        f"  ⚠ 含测试任务（覆盖可能减少）: {test_ish}" if test_ish else "",
+                    )
 
                 # resume：已 passed 的不重跑，重建 worktree + 恢复 outcome
                 wave_to_run: list[str] = []

@@ -204,6 +204,45 @@ class TestParallelOrchestrator:
         assert started == ["t1"]
 
     @pytest.mark.asyncio
+    async def test_skip_propagates_transitively(
+        self, real_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """t1 失败 → t2(依赖 t1) 跳过 → t3(依赖被跳过的 t2) 也应被跳过（传递性）。"""
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        dag = write_workspace_with_specs(
+            ws_dir,
+            """
+            phases:
+              - name: A
+                type: serial
+                tasks: [t1]
+              - name: B
+                type: serial
+                tasks: [t2]
+              - name: C
+                type: serial
+                tasks: [t3]
+            tasks:
+              t1: {spec: specs/t1.md}
+              t2: {spec: specs/t2.md, depends_on: [t1]}
+              t3: {spec: specs/t3.md, depends_on: [t2]}
+            shared_files: []
+            """,
+        )
+        ws = load_workspace(dag)
+        started: list[str] = []
+        monkeypatch.setattr(
+            ParallelOrchestrator,
+            "_run_one_task",
+            fake_run_factory({"t1": False}, started),
+        )
+        report = await ParallelOrchestrator(ws, real_repo, max_concurrency=4).run()
+        assert "t2" in report.skipped
+        assert "t3" in report.skipped  # 关键：依赖被跳过的 t2，也被跳过
+        assert started == ["t1"]
+
+    @pytest.mark.asyncio
     async def test_partial_failure_independent_branch_runs(
         self, real_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
