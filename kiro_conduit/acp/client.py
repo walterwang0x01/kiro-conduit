@@ -217,6 +217,12 @@ class AcpClient:
             ),
             name=f"acp-prompt-{session_id}",
         )
+        # 若调用方提前丢弃迭代器（如上层 reviewer 超时被取消），prompt_task 仍会在
+        # client 关闭时以 ConnectionError 结束。加个 done-callback 主动取走异常，
+        # 避免 "Task exception was never retrieved" 噪声（正常迭代仍会 .result()）。
+        prompt_task.add_done_callback(
+            lambda t: not t.cancelled() and t.exception()
+        )
 
         return _PromptIterator(queue, prompt_task)
 

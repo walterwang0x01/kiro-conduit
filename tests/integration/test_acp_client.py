@@ -240,3 +240,30 @@ async def test_close_terminates_subprocess(
         await client.close()
     # close 之后子进程应该退了
     assert client._proc.returncode is not None
+
+
+@pytest.mark.asyncio
+async def test_abandoned_prompt_exception_is_retrieved_on_close(
+    mock_acp_config: Callable[[dict[str, Any]], AcpClientConfig],
+    default_mock_script: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    """丢弃迭代器后关闭 client：pending 的 prompt 会以 ConnectionError 结束，
+    done-callback 应主动取走异常（不再有 'Task exception was never retrieved' 噪声）。
+    """
+    import asyncio
+
+    script = {**default_mock_script, "delays": {"before_response": 5}}  # 故意不回响应
+    cfg = mock_acp_config(script)
+    client = await AcpClient.spawn(cfg)
+    await client.initialize()
+    sid = await client.new_session(cwd=tmp_path)
+    it = await client.prompt(sid, "hi")  # 拿到迭代器但不消费
+    await asyncio.sleep(0.05)             # 让 _call 把请求挂到 pending
+    await client.close()                  # pending future 被置 ConnectionError
+    await asyncio.sleep(0.05)             # 让 prompt_task 处理完
+
+    task = it._prompt_task
+    assert task.done()
+    # 能正常取到异常（已被 done-callback retrieve，再取无害）→ 不会触发 GC 警告
+    assert isinstance(task.exception(), ConnectionError)
