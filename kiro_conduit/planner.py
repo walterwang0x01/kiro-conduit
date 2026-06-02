@@ -128,6 +128,24 @@ def compute_layers(tasks: list[TaskPlan]) -> list[list[str]]:
     return layers
 
 
+def plan_validation_error(tasks: list[TaskPlan]) -> str | None:
+    """纯校验：返回人/LLM 可读的错误（环 / 未知依赖 / files_owned 重叠），合法则 None。
+
+    用于 plan 自动修复：把这条错误喂回 Kiro 让它重拆。
+    """
+    try:
+        compute_layers(tasks)
+    except PlanError as exc:
+        return str(exc)
+    owner: dict[str, str] = {}
+    for t in tasks:
+        for f in t.files_owned:
+            if f in owner:
+                return f"file {f!r} is owned by both {owner[f]!r} and {t.id!r}"
+            owner[f] = t.id
+    return None
+
+
 # ---------------------------------------------------------------- 生成
 
 def render_dag_yaml(tasks: list[TaskPlan]) -> str:
@@ -215,6 +233,15 @@ spec：
 """
 
 
+REPAIR_PROMPT = """你刚拆出的 task plan 没通过校验：
+{error}
+
+下面是你上次的输出。请**修正这个问题**后，重新只输出修正后的完整 JSON 对象
+（同样格式、不要多余文字、不要创建文件）：
+{plan}
+"""
+
+
 class KiroPlanner:
     """用 ACP 驱动 Kiro 把 spec 规划成 TaskPlan 列表。"""
 
@@ -223,12 +250,28 @@ class KiroPlanner:
         kiro_cli_path: str = "kiro-cli",
         prompt_timeout: float = 300.0,
         model: str | None = None,
+        max_repairs: int = 2,
     ) -> None:
         self._kiro_cli_path = kiro_cli_path
         self._prompt_timeout = prompt_timeout
         self._model = model
+        self._max_repairs = max_repairs
 
     async def generate_plan(self, spec_text: str, cwd: Path) -> list[TaskPlan]:
+        raw = await self._ask(PLAN_PROMPT.format(spec=spec_text), cwd)
+        tasks = parse_plan(raw)
+        # 自动修复：校验不过（环 / 未知依赖 / files_owned 重叠）就把错误喂回 Kiro 重拆。
+        # LLM 拆分常在这些边界出错；自动修掉机械错，减少人工返工（仍建议人审思路）。
+        for _ in range(self._max_repairs):
+            err = plan_validation_error(tasks)
+            if err is None:
+                break
+            logger.warning("[planner] plan invalid, asking Kiro to fix: %s", err)
+            raw = await self._ask(REPAIR_PROMPT.format(error=err, plan=raw), cwd)
+            tasks = parse_plan(raw)
+        return tasks
+
+    async def _ask(self, prompt: str, cwd: Path) -> str:
         from kiro_conduit.acp import AcpClient, AcpClientConfig, AgentMessageChunk, TurnEnd
 
         config = AcpClientConfig(
@@ -241,10 +284,10 @@ class KiroPlanner:
         async with await AcpClient.spawn(config) as client:
             await client.initialize()
             session_id = await client.new_session(cwd=cwd)
-            events = await client.prompt(session_id, PLAN_PROMPT.format(spec=spec_text))
+            events = await client.prompt(session_id, prompt)
             async for event in events:
                 if isinstance(event, AgentMessageChunk):
                     parts.append(event.text)
                 elif isinstance(event, TurnEnd):
                     break
-        return parse_plan("".join(parts))
+        return "".join(parts)

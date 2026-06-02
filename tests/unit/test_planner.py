@@ -154,3 +154,55 @@ class TestPlanPrompt:
         # 粒度启发：PR 大小 + 别拆强耦合
         assert "PR" in PLAN_PROMPT
         assert "强耦合" in PLAN_PROMPT
+
+
+class TestPlanValidationAndRepair:
+    """plan_validation_error 纯校验 + KiroPlanner 自动修复重试。"""
+
+    def test_validation_detects_overlap(self) -> None:
+        from kiro_conduit.planner import plan_validation_error
+        tasks = [
+            TaskPlan(id="a", prompt="a", files_owned=["src/x.py"]),
+            TaskPlan(id="b", prompt="b", files_owned=["src/x.py"]),
+        ]
+        err = plan_validation_error(tasks)
+        assert err is not None and "src/x.py" in err
+
+    def test_validation_detects_cycle(self) -> None:
+        from kiro_conduit.planner import plan_validation_error
+        tasks = [
+            TaskPlan(id="a", prompt="a", depends_on=["b"]),
+            TaskPlan(id="b", prompt="b", depends_on=["a"]),
+        ]
+        assert plan_validation_error(tasks) is not None
+
+    def test_validation_passes_clean(self) -> None:
+        from kiro_conduit.planner import plan_validation_error
+        tasks = [
+            TaskPlan(id="a", prompt="a", files_owned=["src/a.py"]),
+            TaskPlan(id="b", prompt="b", files_owned=["src/b.py"], depends_on=["a"]),
+        ]
+        assert plan_validation_error(tasks) is None
+
+    @pytest.mark.asyncio
+    async def test_generate_plan_auto_repairs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """首拆 files_owned 重叠 → 自动把错误喂回、第二次拆干净 → 返回修好的。"""
+        from kiro_conduit.planner import KiroPlanner
+
+        bad = '{"tasks":[{"id":"a","prompt":"a","files_owned":["src/x.py"]},' \
+              '{"id":"b","prompt":"b","files_owned":["src/x.py"]}]}'
+        good = '{"tasks":[{"id":"a","prompt":"a","files_owned":["src/a.py"]},' \
+               '{"id":"b","prompt":"b","files_owned":["src/b.py"]}]}'
+        calls: list[str] = []
+
+        async def fake_ask(self, prompt: str, cwd: Path) -> str:  # type: ignore[no-untyped-def]
+            calls.append(prompt)
+            return bad if len(calls) == 1 else good
+
+        monkeypatch.setattr(KiroPlanner, "_ask", fake_ask)
+        tasks = await KiroPlanner().generate_plan("spec", tmp_path)
+        assert {t.id for t in tasks} == {"a", "b"}
+        assert len(calls) == 2  # 修复了一次
+        assert "校验" in calls[1] or "没通过" in calls[1] or "src/x.py" in calls[1]
