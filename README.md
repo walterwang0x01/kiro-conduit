@@ -273,36 +273,44 @@ main 上 src/calc/__init__.py:
 
 ## Why kiro-conduit：为什么不用 X
 
-市面上至少有 9 个并行 AI coding 编排器。**它们都不支持 Kiro CLI**。
+并行 AI coding 这块 2026 年才成形、周更级 churn，"主流产品"其实分 **5 层**，先把位置摆清：
 
-| 工具 | 类型 | 支持的 agent | 共享文件锁 | 接口锁定 (stub-first) | 跨仓库 |
-|------|------|--------------|------------|----------------------|--------|
-| **kiro-conduit** | OSS, Python | **Kiro CLI** (ACP) | ✅ M1.0 (single-writer) | ✅ M1.1 stub-first | ✅ M2 核心支持 |
-| Conductor (YC S24) | macOS app | Claude Code, Cursor | ✗ | ✗ | ✗ |
-| Intent (Augment) | VS Code 插件 | Augment + BYOA | ✓ | 部分 | 部分 |
-| microsoft/conductor | CLI | Copilot SDK, Anthropic | ✗ | ✗ | ✗ |
-| ryanmac/code-conductor | CLI | Claude Code subagents | ✗ | ✗ | ✗ |
-| Claude Squad | TUI | Claude Code | ✗ | ✗ | ✗ |
-| Vibe Kanban | Web | Claude / Codex / 通用 | ✗ | ✗ | ✗ |
-| Devin | SaaS | Devin only | ✓ | ✗ | ✗ |
-| Cursor Background Agents | IDE | Cursor only | ✗ | ✗ | ✗ |
-| GitHub Spec Kit | 模板 | Copilot | — | — | — |
+| 层 | 是什么 | 代表 | 与本项目 |
+|----|--------|------|----------|
+| 1 IDE/内联助手 | 编辑器里交互式（=vibe coding） | Copilot、Cursor、Windsurf | 不同类 |
+| 2 终端 CLI agent | 单个自主 agent 跑命令 | Claude Code、Codex CLI、Gemini CLI、Aider、Amp、**Kiro CLI** | **被驱动的对象** |
+| **3 worktree 并行编排器** | 多个第 2 层 agent 并行在 git worktree | Conductor、Vibe Kanban、Claude Squad、Crystal/Nimbalyst、Superconductor、code-conductor、MS Conductor | **kiro-conduit 在这层** |
+| 4 云端/异步 agent | 云 VM 异步跑、开 PR | Devin、Cursor Cloud Agents、Codex cloud、Copilot coding agent、Augment Cosmos | 同思路、云托管 |
+| 5 沙箱基础设施 | agent 运行的隔离层 | E2B、Daytona、Modal、Firecracker、Vercel Sandbox | `--sandbox` 是其轻量本地版 |
 
-**kiro-conduit 的差异化**：
+**第 3 层（同类）横评——它们都不原生支持 Kiro CLI**：
 
-- ✅ **唯一原生支持 Kiro ACP 协议**，直接驱动 `kiro-cli acp` 子进程
-- ✅ **共享文件锁完整 3 种 policy**：single-writer / append-only / coordinator-only（M1.0 + M1.1）
-- ✅ **拓扑波次并行调度**：考虑显式 `depends_on` + phase 屏障 + serial phase 内顺序 + 接口锁
-- ✅ **接口锁定 stub-first**——行业其他工具大多没显式做的细分能力。M1.1 step 1 落地：
-  Verifier Layer 4 用 AST 抽签名 + diff，consumer 偷改接口直接拒（实测拦住了 LLM 越界）
-- ✅ **Verifier 4 层流水线**（M1.1 step 2）：static (lint) → dynamic (test) → semantic (AI review) → contract，可插拔
-  Reviewer 后端，默认 No-Op，可换 KiroSemanticReviewer 起独立 ACP session 跑评审
-- ✅ **BYOA 模型路由**（M1.1 step 3）：implementor 跟 reviewer 各自配模型，省 token 同时保质量
-- ✅ **TUI dashboard**（M1.1 step 4）：rich.live 实时看 wave 进度 / worker 状态 / 锁 holder / merge 状态，
-  通过 EventBus 解耦——orchestrator 不依赖 dashboard，dashboard 不依赖 orchestrator
-- 🟡 **跨仓库** M2 路线图
+| 工具 | 支持的 agent | worktree 隔离 | 自动验证/集成审查 | 跨仓库 |
+|------|--------------|--------------|------------------|--------|
+| **kiro-conduit** | **Kiro CLI** (ACP) | ✅ | ✅ 4 层验证 + 集成级 AI 初审 | ✅ |
+| Conductor | Claude Code / Cursor | ✅ | ✗（留给人 review/merge） | ✗ |
+| Vibe Kanban | Claude / Codex / 通用 | ✅ | ✗ | ✗ |
+| Claude Squad | Claude Code | ✅ | ✗ | ✗ |
+| Crystal / Nimbalyst | Claude Code | ✅ | ✗ | 部分 |
+| Superconductor | Claude/Codex/Gemini/通用 | ✅ | ✗ | 部分 |
+| code-conductor | Claude Code subagents | ✅ | ✗ | ✗ |
 
-> 想看 9 个开源编排器的横评？参考 [Augment Code 那篇 2026 综述](https://www.augmentcode.com/tools/open-source-agent-orchestrators)。
+> 行业把第 3 层的玩法叫 **"agentmaxxing"**：尽量多开 agent 并行，人从"写代码"变成"审代码"。多数同类把 **merge/review 全丢给你**——kiro-conduit 多做了一步**自动集成 + AI 初审**，把人收敛到只审一份报告。
+
+**kiro-conduit 的差异化（截至 M2）**：
+
+- ✅ **唯一原生驱动 Kiro CLI（ACP）** —— 第 3 层里独一份
+- ✅ **依赖累积**：任务基于其依赖的真实产出工作（不是各自从 base 起重造）
+- ✅ **Verifier 4 层**：static(lint) → dynamic(test) → semantic(对照 spec 的 AI review) → contract
+- ✅ **集成级 AI 初审**（`--review`）+ **集成全量验证**（`integration_check`）：拼好后自动审 + 构建，人只看一份报告
+- ✅ **失败也合并已通过的**到 `kiro-conduit/integration`，绝不碰你工作区/当前分支
+- ✅ **按任务选模型**（dag `model:`）、**接口锁定 stub-first**、**3 种共享文件锁**
+- ✅ **worktree 环境准备**（`setup` / `copy_files` / `--venv`）、**OS 级写入沙箱**（`--sandbox`，Seatbelt/bwrap）
+- ✅ **跨仓库**、**断点续跑**（run-state）、**瞬时错误退避**、**TUI dashboard**
+
+> **趋势提醒（诚实）**：前沿正从本地第 3 层往**云托管第 4 层**（Cursor Cloud Agents、Cosmos "agentic OS"）走，那是为"舰队规模"设计的。kiro-conduit 是**本地、轻、零基础设施**——简单、私有代码不出本机，但不冲规模。
+>
+> 想看第 3 层开源工具横评？参考 [Augment Code 的 2026 综述](https://www.augmentcode.com/tools/open-source-agent-orchestrators)。
 
 ---
 
