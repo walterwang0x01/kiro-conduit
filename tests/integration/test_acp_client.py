@@ -253,7 +253,7 @@ async def test_abandoned_prompt_exception_is_retrieved_on_close(
     """
     import asyncio
 
-    script = {**default_mock_script, "delays": {"before_response": 5}}  # 故意不回响应
+    script = {**default_mock_script, "delays": {"before_notification": 5}}  # 只拖 prompt 的响应
     cfg = mock_acp_config(script)
     client = await AcpClient.spawn(cfg)
     await client.initialize()
