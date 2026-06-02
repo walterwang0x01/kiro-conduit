@@ -114,6 +114,10 @@ async def _review_integration(
     )
     flag = "✅ 无明显问题" if result.passed else "⚠ 有发现，请看报告"
     print(f"\n🔎 集成 AI 初审: {flag} — 详见 {report_path}")
+    logger.info(
+        "[review] integration AI review verdict=%s report=%s",
+        "PASS" if result.passed else "CONCERNS", report_path,
+    )
 
 
 async def _integration_check(
@@ -155,6 +159,7 @@ async def _integration_check(
         out_b, _ = await proc.communicate()
         ok = proc.returncode == 0
         print(f"\n🧪 集成全量验证: {'✅ PASS' if ok else '✗ FAIL'}  ($ {cmd})")
+        logger.info("[integration-check] %s ($ %s)", "PASS" if ok else "FAIL", cmd)
         if not ok:
             print(out_b.decode("utf-8", errors="replace")[-1500:])
         return ok
