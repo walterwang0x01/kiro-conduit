@@ -101,7 +101,8 @@ kiro-conduit run --workspace my-workspace/ --merge
 | `--base-repo <dir>` | 目标 git 仓库（默认 = workspace 目录） |
 | `--base-branch <name>` | base 分支（默认 = 仓库当前分支） |
 | `--venv <dir>` | 把该 venv 的 `bin/` 前置到 PATH，让验证（pytest/lint）和 kiro-cli 用你项目的工具（默认继承当前 PATH） |
-| `--review` | 启用 Layer 3 语义评审：另起一个 kiro-cli 子进程，对照每个 task 的 spec 审查它的 diff，抓"测试发现不了的 spec 漂移"（如某接口没按 spec 切鉴权）。默认关 |
+| `--review` | 合并后对**组装好的集成结果**起一个 kiro-cli，对照 spec 审整条 diff，出 `.kiro-conduit/review.md`（抓测试发现不了的 spec 漂移）。默认关 |
+| `--review-tasks` | 【较贵】在执行期对**每个 task** 也跑语义审（对照各自 spec，超时 600s）；`--review` 只审整体集成。默认关 |
 | `--review-model <id>` | 语义评审用的模型（默认 Kiro 默认模型） |
 | `--sandbox` | 【实验】用 OS 沙箱（macOS Seatbelt / Linux bwrap）把 kiro-cli 的**文件写入限制在该 task 的 worktree**，读取/网络放开（不破坏登录）；无对应 OS 工具时自动跳过。默认关 |
 | `--merge` | 合并通过的 task 分支到 `kiro-conduit/integration`（默认不合，只产出分支供 review）。**部分任务失败时，仍会把已通过的合进 integration 并报告失败项**，不会因一个失败丢掉全部成果 |

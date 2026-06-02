@@ -336,6 +336,15 @@ class TestReviewFlag:
         # 评审只在合并后的集成级做。
         assert self._spy_reviewer(monkeypatch, _write_ws(tmp_path), ["--review"]) is None
 
+    def test_review_tasks_wires_per_task_reviewer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # --review-tasks 显式开启每任务语义审 → orchestrator 拿到 KiroSemanticReviewer
+        from kiro_conduit.semantic import KiroSemanticReviewer
+
+        r = self._spy_reviewer(monkeypatch, _write_ws(tmp_path), ["--review-tasks"])
+        assert isinstance(r, KiroSemanticReviewer)
+
     def test_no_review_by_default(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
