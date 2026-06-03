@@ -397,6 +397,49 @@ class TestIntegrationCheck:
         assert await _integration_check(ws, repo, "main") is None
 
 
+class TestDirtyOverlapWarning:
+    """#1 preflight：脏文件与任务 files_owned 重叠时告警。"""
+
+    def _repo(self, tmp_path: Path) -> Path:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        for a in (["init", "-b", "main"], ["config", "user.email", "t@t.com"],
+                  ["config", "user.name", "t"]):
+            subprocess.run(["git", *a], cwd=repo, check=True, capture_output=True)
+        (repo / "a.py").write_text("x=1\n")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "i"], cwd=repo, check=True, capture_output=True)
+        return repo
+
+    def _ws(self, owned: list[str]) -> object:
+        from kiro_conduit.dag import TaskDef, Workspace
+        return Workspace(
+            phases=(), tasks={"t1": TaskDef(id="t1", spec="s", files_owned=tuple(owned))},
+            shared_files=(), workspace_root=Path("."),
+        )
+
+    @pytest.mark.asyncio
+    async def test_warns_on_overlap(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from kiro_conduit.cli import _warn_if_dirty_overlap
+        repo = self._repo(tmp_path)
+        (repo / "a.py").write_text("x=2\n")  # 脏改 a.py
+        await _warn_if_dirty_overlap(self._ws(["a.py"]), repo)  # 任务也拥有 a.py
+        out = capsys.readouterr().out
+        assert "重叠" in out and "a.py" in out
+
+    @pytest.mark.asyncio
+    async def test_no_warn_without_overlap(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from kiro_conduit.cli import _warn_if_dirty_overlap
+        repo = self._repo(tmp_path)
+        (repo / "a.py").write_text("x=2\n")  # 脏 a.py
+        await _warn_if_dirty_overlap(self._ws(["b.py"]), repo)  # 任务拥有 b.py，不重叠
+        assert "重叠" not in capsys.readouterr().out
+
+
 class TestVenvPathPrepend:
     """--venv：把 venv/bin 前置到 PATH。"""
 

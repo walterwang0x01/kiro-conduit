@@ -102,10 +102,13 @@ async def _review_integration(
     reviewer = KiroSemanticReviewer(
         kiro_cli_path=args.kiro_cli, model=args.review_model, max_diff_chars=120000
     )
-    result = await review_integration(
-        base_repo=base_repo, base_branch=base_branch, integration_ref=ref,
-        specs_dir=specs_dir, reviewer=reviewer,
-    )
+    from rich.console import Console
+
+    with Console().status("[bold]集成 AI 初审中（对照 spec 审整条 diff）…", spinner="dots"):
+        result = await review_integration(
+            base_repo=base_repo, base_branch=base_branch, integration_ref=ref,
+            specs_dir=specs_dir, reviewer=reviewer,
+        )
     report_path = base_repo / ".kiro-conduit" / "review.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     verdict = "PASS" if result.passed else "CONCERNS"
@@ -152,11 +155,14 @@ async def _integration_check(
                 dst = wt / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
-        proc = await asyncio.create_subprocess_shell(
-            cmd, cwd=str(wt),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-        )
-        out_b, _ = await proc.communicate()
+        from rich.console import Console
+
+        with Console().status(f"[bold]集成全量验证中… ($ {cmd})", spinner="dots"):
+            proc = await asyncio.create_subprocess_shell(
+                cmd, cwd=str(wt),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            )
+            out_b, _ = await proc.communicate()
         ok = proc.returncode == 0
         print(f"\n🧪 集成全量验证: {'✅ PASS' if ok else '✗ FAIL'}  ($ {cmd})")
         logger.info("[integration-check] %s ($ %s)", "PASS" if ok else "FAIL", cmd)
@@ -217,6 +223,7 @@ async def _run(args: argparse.Namespace) -> int:
     )
     _configure_run_logging(args.dashboard, log_path)
     await _preflight(base_repo)
+    await _warn_if_dirty_overlap(ws, base_repo)
     base_branch = await _resolve_base_branch(base_repo, args.base_branch)
 
     # 裸重跑守卫：发现上次进度但既没 --resume 也没 --fresh → 提示而非默删重来
@@ -327,6 +334,30 @@ async def _preflight(base_repo: Path) -> None:
         )
     else:
         print("  working tree: clean")
+
+
+async def _warn_if_dirty_overlap(ws: Workspace, base_repo: Path) -> None:
+    """base 仓库未提交(脏)文件与任务 files_owned 重叠 → 告警。
+
+    worktree 从已提交 HEAD 起、跑起来安全，但**合并阶段**这些重叠文件会冲突
+    （你的未提交改动 vs 任务的新改动）。提前提示先提交/stash。
+    """
+    code, out, _e = await run_git(base_repo, ["status", "--porcelain"])
+    if code != 0:
+        return
+    dirty = {ln[3:].strip() for ln in out.splitlines() if ln.strip() and ln[0] != "?"}
+    if not dirty:
+        return
+    owned: set[str] = set()
+    for t in ws.tasks.values():
+        if t.repo is None:  # 默认仓库 = base_repo
+            owned.update(t.files_owned)
+    clash = sorted(dirty & owned)
+    if clash:
+        print(
+            "\n⚠ 警告：你有未提交改动，且与下列任务会改的文件重叠——合并阶段会冲突。"
+            "\n  建议先 commit 或 stash 这些改动再跑：\n    " + "\n    ".join(clash)
+        )
 
 
 async def _resolve_base_branch(base_repo: Path, override: str | None) -> str:
