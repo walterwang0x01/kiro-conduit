@@ -352,7 +352,9 @@ async def _plan(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"✓ planning from spec: {spec_path}")
-    planner = KiroPlanner(kiro_cli_path=args.kiro_cli, model=args.model)
+    planner = KiroPlanner(
+        kiro_cli_path=args.kiro_cli, model=args.model, prompt_timeout=args.timeout
+    )
     from rich.console import Console
 
     console = Console()
@@ -366,6 +368,13 @@ async def _plan(args: argparse.Namespace) -> int:
             dag_path = write_plan(tasks, out_dir)
     except PlanError as exc:
         print(f"\n✗ planning failed: {exc}")
+        return 1
+    except (TimeoutError, ConnectionError) as exc:
+        print(
+            f"\n✗ planning 中断（{type(exc).__name__}）：Kiro 拆分超过了 "
+            f"{args.timeout:.0f}s。大 spec 拆分较慢——用更大的 --timeout 重试"
+            f"（如 --timeout 1800），或确认 kiro-cli 能正常跑。"
+        )
         return 1
 
     print(f"\n✓ generated {dag_path}  ({len(tasks)} tasks)")
@@ -455,6 +464,11 @@ def main(argv: list[str] | None = None) -> int:
     plan_p.add_argument("--kiro-cli", default="kiro-cli", help="path to kiro-cli binary")
     plan_p.add_argument(
         "--model", default=None, help="model id for planning (default: Kiro default)"
+    )
+    plan_p.add_argument(
+        "--timeout", type=float, default=900.0,
+        help="seconds to wait for each Kiro decomposition call (default: 900; "
+             "raise it for big specs)",
     )
 
     args = parser.parse_args(argv)
