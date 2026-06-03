@@ -352,11 +352,18 @@ async def _plan(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"✓ planning from spec: {spec_path}")
-    print("  asking Kiro to decompose it into a DAG (this may take ~1 min)...")
     planner = KiroPlanner(kiro_cli_path=args.kiro_cli, model=args.model)
+    from rich.console import Console
+
+    console = Console()
     try:
-        tasks = await planner.generate_plan(spec_text, cwd=out_dir)
-        dag_path = write_plan(tasks, out_dir)
+        with console.status(
+            "[bold]asking Kiro to decompose the spec into a DAG…[/] "
+            "(可能要几分钟；拆错会自动喂回重拆)",
+            spinner="dots",
+        ):
+            tasks = await planner.generate_plan(spec_text, cwd=out_dir)
+            dag_path = write_plan(tasks, out_dir)
     except PlanError as exc:
         print(f"\n✗ planning failed: {exc}")
         return 1
