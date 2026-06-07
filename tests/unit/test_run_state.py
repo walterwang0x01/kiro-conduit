@@ -63,3 +63,78 @@ class TestRunState:
         rs.record("t1", TaskRunStatus.PASSED, branch="b", attempts=2)
         assert rs.tasks["t1"].status is TaskRunStatus.PASSED
         assert rs.passed_ids() == {"t1"}
+
+
+class TestRunStateContextRecovery:
+    """run_state 的上下文恢复扩展（failure feedback + failed_summary）。"""
+
+    def test_record_failure_with_feedback(self) -> None:
+        rs = RunState(base_branch="main")
+        rs.record(
+            "t1",
+            TaskRunStatus.FAILED,
+            branch="kiro-conduit/t1",
+            attempts=2,
+            last_failure_feedback="[dynamic failed] test_auth failed: AssertionError",
+            last_failed_layer="dynamic",
+        )
+        assert rs.tasks["t1"].last_failure_feedback is not None
+        assert "test_auth" in rs.tasks["t1"].last_failure_feedback
+        assert rs.tasks["t1"].last_failed_layer == "dynamic"
+
+    def test_failed_summary(self) -> None:
+        rs = RunState(base_branch="main")
+        rs.record("t1", TaskRunStatus.PASSED, attempts=1)
+        rs.record(
+            "t2",
+            TaskRunStatus.FAILED,
+            attempts=3,
+            last_failure_feedback="lint error: missing type hint",
+            last_failed_layer="static",
+        )
+        rs.record("t3", TaskRunStatus.SKIPPED)
+        summary = rs.failed_summary()
+        assert "t1" not in summary
+        assert "t3" not in summary
+        assert "t2" in summary
+        feedback, layer = summary["t2"]
+        assert feedback == "lint error: missing type hint"
+        assert layer == "static"
+
+    def test_roundtrip_preserves_feedback(self, tmp_path: Path) -> None:
+        rs = RunState(base_branch="main")
+        rs.record(
+            "t1",
+            TaskRunStatus.FAILED,
+            branch="kiro-conduit/t1",
+            attempts=2,
+            last_failure_feedback="contract violation: signature changed",
+            last_failed_layer="contract",
+        )
+        p = state_path(tmp_path)
+        save_state(p, rs)
+
+        loaded = load_state(p)
+        assert loaded is not None
+        assert loaded.tasks["t1"].last_failure_feedback == "contract violation: signature changed"
+        assert loaded.tasks["t1"].last_failed_layer == "contract"
+
+    def test_old_format_without_feedback_still_loads(self, tmp_path: Path) -> None:
+        """兼容性：旧版 run-state 没有 feedback 字段仍然能加载。"""
+        import json
+
+        p = state_path(tmp_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        old_format = {
+            "version": 1,
+            "base_branch": "main",
+            "tasks": {
+                "t1": {"status": "passed", "branch": "b1", "attempts": 1}
+            },
+        }
+        p.write_text(json.dumps(old_format), encoding="utf-8")
+        loaded = load_state(p)
+        assert loaded is not None
+        assert loaded.tasks["t1"].status is TaskRunStatus.PASSED
+        assert loaded.tasks["t1"].last_failure_feedback is None
+        assert loaded.tasks["t1"].last_failed_layer is None

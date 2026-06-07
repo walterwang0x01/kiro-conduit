@@ -35,6 +35,9 @@ class TaskState:
     status: TaskRunStatus
     branch: str | None = None
     attempts: int = 0
+    # M2 扩展：最后一次失败的摘要信息，让 resume 时 Coordinator 能恢复上下文
+    last_failure_feedback: str | None = None
+    last_failed_layer: str | None = None
 
 
 @dataclass(slots=True)
@@ -48,14 +51,30 @@ class RunState:
         status: TaskRunStatus,
         branch: str | None = None,
         attempts: int = 0,
+        last_failure_feedback: str | None = None,
+        last_failed_layer: str | None = None,
     ) -> None:
-        self.tasks[task_id] = TaskState(status=status, branch=branch, attempts=attempts)
+        self.tasks[task_id] = TaskState(
+            status=status,
+            branch=branch,
+            attempts=attempts,
+            last_failure_feedback=last_failure_feedback,
+            last_failed_layer=last_failed_layer,
+        )
 
     def passed_ids(self) -> set[str]:
         return {
             tid
             for tid, s in self.tasks.items()
             if s.status is TaskRunStatus.PASSED
+        }
+
+    def failed_summary(self) -> dict[str, tuple[str | None, str | None]]:
+        """返回 failed tasks 的 {task_id: (feedback, layer)}，用于 resume 时恢复上下文。"""
+        return {
+            tid: (s.last_failure_feedback, s.last_failed_layer)
+            for tid, s in self.tasks.items()
+            if s.status is TaskRunStatus.FAILED
         }
 
     def to_dict(self) -> dict[str, object]:
@@ -67,6 +86,8 @@ class RunState:
                     "status": s.status.value,
                     "branch": s.branch,
                     "attempts": s.attempts,
+                    "last_failure_feedback": s.last_failure_feedback,
+                    "last_failed_layer": s.last_failed_layer,
                 }
                 for tid, s in self.tasks.items()
             },
@@ -88,6 +109,8 @@ class RunState:
                 status=TaskRunStatus(t["status"]),
                 branch=t.get("branch"),
                 attempts=int(t.get("attempts", 0)),
+                last_failure_feedback=t.get("last_failure_feedback"),
+                last_failed_layer=t.get("last_failed_layer"),
             )
         return cls(base_branch=base_branch, tasks=tasks)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -202,7 +203,257 @@ class TestPlanValidationAndRepair:
             return bad if len(calls) == 1 else good
 
         monkeypatch.setattr(KiroPlanner, "_ask", fake_ask)
-        tasks = await KiroPlanner().generate_plan("spec", tmp_path)
+        planner = KiroPlanner(self_eval=False)
+        tasks = await planner.generate_plan("spec", tmp_path)
         assert {t.id for t in tasks} == {"a", "b"}
         assert len(calls) == 2  # 修复了一次
         assert "校验" in calls[1] or "没通过" in calls[1] or "src/x.py" in calls[1]
+
+
+class TestParseEvaluation:
+    """parse_evaluation 纯解析（不调 LLM）。"""
+
+    def test_parses_full_evaluation(self) -> None:
+        from kiro_conduit.planner import parse_evaluation
+
+        raw = """```json
+{
+  "score": 72,
+  "dimensions": {
+    "coverage": {"score": 80, "issues": ["漏了认证模块"]},
+    "granularity": {"score": 70, "issues": []},
+    "coupling": {"score": 65, "issues": ["task-a 和 task-b 改了同一个 router"]},
+    "dependencies": {"score": 75, "issues": []},
+    "clarity": {"score": 70, "issues": ["task-c prompt 太模糊"]}
+  },
+  "must_fix": ["task-a 和 task-b 都改 src/router.py，需要合并或加 depends_on"],
+  "suggestions": ["task-c 的 prompt 可以更具体"]
+}
+```"""
+        ev = parse_evaluation(raw)
+        assert ev.score == 72
+        assert ev.coverage.score == 80
+        assert ev.coverage.issues == ["漏了认证模块"]
+        assert ev.coupling.score == 65
+        assert len(ev.must_fix) == 1
+        assert ev.needs_repair is True
+        assert "72" in ev.summary()
+
+    def test_parses_minimal_evaluation(self) -> None:
+        from kiro_conduit.planner import parse_evaluation
+
+        raw = '{"score": 85, "dimensions": {}, "must_fix": [], "suggestions": []}'
+        ev = parse_evaluation(raw)
+        assert ev.score == 85
+        assert ev.needs_repair is False
+        # 未提供维度 → 默认 0 分
+        assert ev.coverage.score == 0
+
+    def test_handles_missing_fields_gracefully(self) -> None:
+        from kiro_conduit.planner import parse_evaluation
+
+        raw = '{"score": 60}'
+        ev = parse_evaluation(raw)
+        assert ev.score == 60
+        assert ev.must_fix == []
+        assert ev.needs_repair is False
+
+    def test_rejects_non_json(self) -> None:
+        from kiro_conduit.planner import parse_evaluation
+
+        with pytest.raises(PlanError, match="parse plan JSON"):
+            parse_evaluation("this is not json")
+
+
+class TestSelfEval:
+    """KiroPlanner 自评 pass 集成测试（mock _ask）。"""
+
+    @pytest.mark.asyncio
+    async def test_self_eval_pass_no_must_fix(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """自评通过（高分 + 无 must_fix）→ 不触发额外修复。"""
+        from kiro_conduit.planner import KiroPlanner
+
+        good_plan = '{"tasks":[{"id":"a","prompt":"build a","files_owned":["src/a.py"]}]}'
+        good_eval = '{"score":85,"dimensions":{},"must_fix":[],"suggestions":["可改进"]}'
+        calls: list[str] = []
+
+        async def fake_ask(self: object, prompt: str, cwd: Path) -> str:
+            calls.append(prompt[:30])
+            if "规划审查器" in prompt:
+                return good_eval
+            return good_plan
+
+        monkeypatch.setattr(KiroPlanner, "_ask", fake_ask)
+        planner = KiroPlanner()
+        tasks = await planner.generate_plan("my spec", tmp_path)
+        assert len(tasks) == 1
+        # 2 次调用：1 次 plan + 1 次 self-eval（无 repair）
+        assert len(calls) == 2
+        assert planner.last_evaluation is not None
+        assert planner.last_evaluation.score == 85
+
+    @pytest.mark.asyncio
+    async def test_self_eval_triggers_repair(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """自评发现 must_fix + 低分 → 触发一次修复。"""
+        from kiro_conduit.planner import KiroPlanner
+
+        plan_v1 = (
+            '{"tasks":['
+            '{"id":"a","prompt":"build a","files_owned":["src/a.py"]},'
+            '{"id":"b","prompt":"build b","files_owned":["src/b.py"]}'
+            ']}'
+        )
+        plan_v2 = (
+            '{"tasks":['
+            '{"id":"ab","prompt":"build a and b together","files_owned":["src/a.py","src/b.py"]}'
+            ']}'
+        )
+        eval_bad = (
+            '{"score":50,"dimensions":{},'
+            '"must_fix":["task-a 和 task-b 强耦合应合并"],'
+            '"suggestions":[]}'
+        )
+        call_count = 0
+
+        async def fake_ask(self: object, prompt: str, cwd: Path) -> str:
+            nonlocal call_count
+            call_count += 1
+            if "规划审查器" in prompt:
+                return eval_bad
+            if "必须修复" in prompt:
+                return plan_v2
+            return plan_v1
+
+        monkeypatch.setattr(KiroPlanner, "_ask", fake_ask)
+        planner = KiroPlanner()
+        tasks = await planner.generate_plan("my spec", tmp_path)
+        # 修复后合成了一个 task
+        assert len(tasks) == 1
+        assert tasks[0].id == "ab"
+        # 3 次调用：plan + eval + repair
+        assert call_count == 3
+        assert planner.last_evaluation is not None
+        assert planner.last_evaluation.needs_repair is True
+
+    @pytest.mark.asyncio
+    async def test_self_eval_skipped_when_disabled(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """self_eval=False → 跳过自评。"""
+        from kiro_conduit.planner import KiroPlanner
+
+        good_plan = '{"tasks":[{"id":"a","prompt":"build a","files_owned":["src/a.py"]}]}'
+        calls: list[str] = []
+
+        async def fake_ask(self: object, prompt: str, cwd: Path) -> str:
+            calls.append(prompt[:30])
+            return good_plan
+
+        monkeypatch.setattr(KiroPlanner, "_ask", fake_ask)
+        planner = KiroPlanner(self_eval=False)
+        tasks = await planner.generate_plan("spec", tmp_path)
+        assert len(tasks) == 1
+        assert len(calls) == 1  # 只有 plan，没有 eval
+        assert planner.last_evaluation is None
+
+    @pytest.mark.asyncio
+    async def test_self_eval_unparseable_graceful(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """自评输出不可解析 → 不崩溃，跳过自评继续返回。"""
+        from kiro_conduit.planner import KiroPlanner
+
+        good_plan = '{"tasks":[{"id":"a","prompt":"build a","files_owned":["src/a.py"]}]}'
+
+        async def fake_ask(self: object, prompt: str, cwd: Path) -> str:
+            if "规划审查器" in prompt:
+                return "sorry I cannot evaluate this"
+            return good_plan
+
+        monkeypatch.setattr(KiroPlanner, "_ask", fake_ask)
+        planner = KiroPlanner()
+        tasks = await planner.generate_plan("spec", tmp_path)
+        assert len(tasks) == 1
+        assert planner.last_evaluation is None
+
+
+class TestTasksToJson:
+    """_tasks_to_json 辅助函数。"""
+
+    def test_round_trips(self) -> None:
+        from kiro_conduit.planner import _tasks_to_json
+
+        tasks = [
+            TaskPlan(id="a", prompt="do a", files_owned=["x.py"], depends_on=["root"]),
+            TaskPlan(id="b", prompt="do b"),
+        ]
+        raw = _tasks_to_json(tasks)
+        parsed = json.loads(raw)
+        assert len(parsed["tasks"]) == 2
+        assert parsed["tasks"][0]["id"] == "a"
+        assert parsed["tasks"][0]["depends_on"] == ["root"]
+        # b 没有 depends_on/files_owned，不应出现在 JSON 里
+        assert "depends_on" not in parsed["tasks"][1]
+
+
+class TestPlannerMemoryInjection:
+    """KiroPlanner 注入 memory 上下文到 plan prompt。"""
+
+    @pytest.mark.asyncio
+    async def test_memory_injected_into_prompt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """有记忆时 plan prompt 应包含失败模式和示例。"""
+        from kiro_conduit.memory import Memory
+        from kiro_conduit.planner import KiroPlanner
+
+        mem = Memory()
+        mem.add_failure_pattern(
+            pattern="consumer 改了接口文件",
+            root_cause="contract 校验拒绝",
+            resolution="spec 里明确说不要改",
+        )
+        mem.add_plan_example("支付模块", ["pay-base", "pay-hook"], score=88)
+
+        good_plan = '{"tasks":[{"id":"a","prompt":"build a","files_owned":["src/a.py"]}]}'
+        captured_prompts: list[str] = []
+
+        async def fake_ask(self: object, prompt: str, cwd: Path) -> str:
+            captured_prompts.append(prompt)
+            return good_plan
+
+        monkeypatch.setattr(KiroPlanner, "_ask", fake_ask)
+        planner = KiroPlanner(self_eval=False, memory=mem)
+        await planner.generate_plan("my spec", tmp_path)
+
+        # plan prompt（第一次调用）应包含记忆内容
+        plan_prompt = captured_prompts[0]
+        assert "失败模式" in plan_prompt
+        assert "consumer 改了接口文件" in plan_prompt
+        assert "拆分示例" in plan_prompt
+        assert "支付模块" in plan_prompt
+
+    @pytest.mark.asyncio
+    async def test_no_memory_no_injection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """无记忆时 prompt 不含历史记忆块。"""
+        from kiro_conduit.planner import KiroPlanner
+
+        good_plan = '{"tasks":[{"id":"a","prompt":"build a","files_owned":["src/a.py"]}]}'
+        captured_prompts: list[str] = []
+
+        async def fake_ask(self: object, prompt: str, cwd: Path) -> str:
+            captured_prompts.append(prompt)
+            return good_plan
+
+        monkeypatch.setattr(KiroPlanner, "_ask", fake_ask)
+        planner = KiroPlanner(self_eval=False, memory=None)
+        await planner.generate_plan("my spec", tmp_path)
+
+        plan_prompt = captured_prompts[0]
+        assert "历史记忆" not in plan_prompt

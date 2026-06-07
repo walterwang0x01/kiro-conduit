@@ -30,12 +30,54 @@ from typing import Any
 import yaml
 
 from kiro_conduit.dag import DagError, load_workspace
+from kiro_conduit.memory import Memory
 
 logger = logging.getLogger(__name__)
 
 
 class PlanError(RuntimeError):
     """plan 解析 / 校验失败。"""
+
+
+@dataclass(frozen=True, slots=True)
+class DimensionResult:
+    """单个自评维度的结果。"""
+
+    score: int
+    issues: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class PlanEvaluation:
+    """plan 自评结果：6 维打分 + 必须修复项 + 建议项。"""
+
+    score: int
+    coverage: DimensionResult
+    granularity: DimensionResult
+    coupling: DimensionResult
+    dependencies: DimensionResult
+    clarity: DimensionResult
+    spec_alignment: DimensionResult
+    must_fix: list[str] = field(default_factory=list)
+    suggestions: list[str] = field(default_factory=list)
+
+    @property
+    def needs_repair(self) -> bool:
+        """有 must_fix 项 → 必须修复后才能给人。"""
+        return len(self.must_fix) > 0
+
+    def summary(self) -> str:
+        """人可读的单行摘要。"""
+        dims = (
+            f"覆盖={self.coverage.score} 粒度={self.granularity.score} "
+            f"耦合={self.coupling.score} 依赖={self.dependencies.score} "
+            f"清晰={self.clarity.score} 对齐={self.spec_alignment.score}"
+        )
+        return f"总分={self.score} [{dims}] must_fix={len(self.must_fix)}"
+
+
+# plan 自评合格的分数阈值（低于此分且有 must_fix 才触发 repair）
+SELF_EVAL_PASS_THRESHOLD = 70
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +188,44 @@ def plan_validation_error(tasks: list[TaskPlan]) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------- 自评解析
+
+def parse_evaluation(raw: str) -> PlanEvaluation:
+    """从 LLM 自评输出解析 PlanEvaluation。容错：字段缺失用默认值。"""
+    data = _extract_json(raw)
+
+    def _dim(key: str) -> DimensionResult:
+        dims = data.get("dimensions", {})
+        d = dims.get(key, {}) if isinstance(dims, dict) else {}
+        if not isinstance(d, dict):
+            d = {}
+        score = d.get("score", 0)
+        issues = d.get("issues", [])
+        return DimensionResult(
+            score=int(score) if isinstance(score, (int, float)) else 0,
+            issues=[str(i) for i in issues] if isinstance(issues, list) else [],
+        )
+
+    def _str_list(key: str) -> list[str]:
+        v = data.get(key, [])
+        return [str(i) for i in v] if isinstance(v, list) else []
+
+    raw_score = data.get("score", 0)
+    score = int(raw_score) if isinstance(raw_score, (int, float)) else 0
+
+    return PlanEvaluation(
+        score=score,
+        coverage=_dim("coverage"),
+        granularity=_dim("granularity"),
+        coupling=_dim("coupling"),
+        dependencies=_dim("dependencies"),
+        clarity=_dim("clarity"),
+        spec_alignment=_dim("spec_alignment"),
+        must_fix=_str_list("must_fix"),
+        suggestions=_str_list("suggestions"),
+    )
+
+
 # ---------------------------------------------------------------- 生成
 
 def render_dag_yaml(tasks: list[TaskPlan]) -> str:
@@ -242,6 +322,72 @@ REPAIR_PROMPT = """你刚拆出的 task plan 没通过校验：
 """
 
 
+SELF_EVAL_PROMPT = """你是一个规划审查器。下面是原始 spec 和据此拆出的 task plan。
+请从以下 6 个维度对 plan 打分（0-100）并列出具体缺陷。
+
+维度：
+1. **需求覆盖**：plan 是否覆盖了 spec 的所有要求？有没有漏需求？
+2. **粒度合理性**：任务粒度是否"一个 PR"大小？有没有过碎（>10 task 做一个中等功能）或过粗？
+3. **耦合切割**：强耦合的工作有没有被拆开？有没有两个 task 实际必须一起改同一模块？
+4. **依赖正确性**：depends_on 关系是否充分？有没有实际有依赖但没声明的？
+5. **prompt 清晰度**：每个 task 的 prompt 是否自包含、明确，让实现者不需猜？
+6. **spec 对齐度**：plan 有没有偏离 spec 的约束或意图？有没有 task 做了 spec 没要求的事？\
+有没有 task 的 prompt 和 spec 矛盾？
+
+只输出一个 JSON 对象，不要任何多余文字、不要创建任何文件。格式：
+{{
+  "score": 整数总分(0-100，6 维平均),
+  "dimensions": {{
+    "coverage": {{"score": 0-100, "issues": ["具体问题..."]}},
+    "granularity": {{"score": 0-100, "issues": ["具体问题..."]}},
+    "coupling": {{"score": 0-100, "issues": ["具体问题..."]}},
+    "dependencies": {{"score": 0-100, "issues": ["具体问题..."]}},
+    "clarity": {{"score": 0-100, "issues": ["具体问题..."]}},
+    "spec_alignment": {{"score": 0-100, "issues": ["具体问题..."]}}
+  }},
+  "must_fix": ["必须修复的问题（阻塞性缺陷）"],
+  "suggestions": ["建议改进（非阻塞）"]
+}}
+
+spec：
+---
+{spec}
+---
+
+plan：
+---
+{plan}
+---
+"""
+
+
+SELF_EVAL_REPAIR_PROMPT = """你刚拆出的 task plan 经过自评发现以下**必须修复的缺陷**：
+{must_fix}
+
+完整的自评结果（供参考）：
+{eval_summary}
+
+下面是你上次的输出。请**修正上述必须修复的问题**后，重新只输出修正后的完整 JSON 对象
+（同样格式、不要多余文字、不要创建文件）：
+{plan}
+"""
+
+
+def _tasks_to_json(tasks: list[TaskPlan]) -> str:
+    """TaskPlan 列表 → 可读的 JSON 文本（用于喂给自评 prompt）。"""
+    task_dicts: list[dict[str, Any]] = []
+    for t in tasks:
+        entry: dict[str, Any] = {"id": t.id, "prompt": t.prompt}
+        if t.depends_on:
+            entry["depends_on"] = t.depends_on
+        if t.files_owned:
+            entry["files_owned"] = t.files_owned
+        if t.acceptance:
+            entry["acceptance"] = t.acceptance
+        task_dicts.append(entry)
+    return json.dumps({"tasks": task_dicts}, indent=2, ensure_ascii=False)
+
+
 class KiroPlanner:
     """用 ACP 驱动 Kiro 把 spec 规划成 TaskPlan 列表。"""
 
@@ -251,17 +397,25 @@ class KiroPlanner:
         prompt_timeout: float = 300.0,
         model: str | None = None,
         max_repairs: int = 2,
+        self_eval: bool = True,
+        max_eval_repairs: int = 1,
+        memory: Memory | None = None,
     ) -> None:
         self._kiro_cli_path = kiro_cli_path
         self._prompt_timeout = prompt_timeout
         self._model = model
         self._max_repairs = max_repairs
+        self._self_eval = self_eval
+        self._max_eval_repairs = max_eval_repairs
+        self._memory = memory
+        # 最近一次自评结果，供调用方查看 / 日志
+        self.last_evaluation: PlanEvaluation | None = None
 
     async def generate_plan(self, spec_text: str, cwd: Path) -> list[TaskPlan]:
-        raw = await self._ask(PLAN_PROMPT.format(spec=spec_text), cwd)
+        prompt = self._build_plan_prompt(spec_text)
+        raw = await self._ask(prompt, cwd)
         tasks = parse_plan(raw)
-        # 自动修复：校验不过（环 / 未知依赖 / files_owned 重叠）就把错误喂回 Kiro 重拆。
-        # LLM 拆分常在这些边界出错；自动修掉机械错，减少人工返工（仍建议人审思路）。
+        # 第一轮：机械校验 repair（环 / 未知依赖 / files_owned 重叠）
         for _ in range(self._max_repairs):
             err = plan_validation_error(tasks)
             if err is None:
@@ -269,7 +423,99 @@ class KiroPlanner:
             logger.warning("[planner] plan invalid, asking Kiro to fix: %s", err)
             raw = await self._ask(REPAIR_PROMPT.format(error=err, plan=raw), cwd)
             tasks = parse_plan(raw)
+
+        # 第二轮：LLM 自评 pass（语义质量检查）
+        if self._self_eval:
+            tasks, raw = await self._run_self_eval(spec_text, tasks, raw, cwd)
+
         return tasks
+
+    def _build_plan_prompt(self, spec_text: str) -> str:
+        """构造 plan prompt，注入记忆上下文（如果有）。"""
+        base = PLAN_PROMPT.format(spec=spec_text)
+        if not self._memory:
+            return base
+
+        context_parts: list[str] = []
+        failures = self._memory.get_failure_patterns_text(limit=5)
+        if failures:
+            context_parts.append(
+                "以下是此仓库历史 run 中总结的**失败模式**，规划时请注意避免：\n"
+                + failures
+            )
+        examples = self._memory.get_plan_examples_text(limit=3)
+        if examples:
+            context_parts.append(
+                "以下是此仓库被验证有效的**拆分示例**，可作为参考：\n" + examples
+            )
+
+        if not context_parts:
+            return base
+
+        memory_block = (
+            "\n\n---\n历史记忆（只读参考，不要修改记忆本身）：\n"
+            + "\n\n".join(context_parts)
+            + "\n---\n\n"
+        )
+        return memory_block + base
+
+    async def _run_self_eval(
+        self,
+        spec_text: str,
+        tasks: list[TaskPlan],
+        raw_plan: str,
+        cwd: Path,
+    ) -> tuple[list[TaskPlan], str]:
+        """对 plan 做 LLM 自评，有 must_fix 项则触发修复。返回最终 tasks 和 raw。"""
+        plan_json = _tasks_to_json(tasks)
+        eval_raw = await self._ask(
+            SELF_EVAL_PROMPT.format(spec=spec_text, plan=plan_json), cwd
+        )
+        try:
+            evaluation = parse_evaluation(eval_raw)
+        except PlanError:
+            # 自评输出解析失败，不阻塞主流程，当作跳过
+            logger.warning("[planner] self-eval output unparseable, skipping")
+            self.last_evaluation = None
+            return tasks, raw_plan
+
+        self.last_evaluation = evaluation
+        logger.info("[planner] self-eval: %s", evaluation.summary())
+
+        # 分数合格或没有 must_fix → 不修
+        if not evaluation.needs_repair or evaluation.score >= SELF_EVAL_PASS_THRESHOLD:
+            return tasks, raw_plan
+
+        # 有 must_fix 且分数低 → 触发修复
+        for i in range(self._max_eval_repairs):
+            logger.warning(
+                "[planner] self-eval repair %d/%d: must_fix=%s",
+                i + 1,
+                self._max_eval_repairs,
+                evaluation.must_fix,
+            )
+            must_fix_text = "\n".join(f"- {item}" for item in evaluation.must_fix)
+            raw_plan = await self._ask(
+                SELF_EVAL_REPAIR_PROMPT.format(
+                    must_fix=must_fix_text,
+                    eval_summary=evaluation.summary(),
+                    plan=plan_json,
+                ),
+                cwd,
+            )
+            tasks = parse_plan(raw_plan)
+            # 修完再做一次机械校验（修复可能引入新的结构错误）
+            mech_err = plan_validation_error(tasks)
+            if mech_err is not None:
+                logger.warning("[planner] post-eval repair structural error: %s", mech_err)
+                raw_plan = await self._ask(
+                    REPAIR_PROMPT.format(error=mech_err, plan=raw_plan), cwd
+                )
+                tasks = parse_plan(raw_plan)
+            # 更新 plan_json 供下次循环用
+            plan_json = _tasks_to_json(tasks)
+
+        return tasks, raw_plan
 
     async def _ask(self, prompt: str, cwd: Path) -> str:
         from kiro_conduit.acp import AcpClient, AcpClientConfig, AgentMessageChunk, TurnEnd

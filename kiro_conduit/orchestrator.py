@@ -33,6 +33,7 @@ from kiro_conduit.events import (
     WaveStarted,
 )
 from kiro_conduit.locks import SharedFileLockManager
+from kiro_conduit.memory import load_memory, memory_path, save_memory
 from kiro_conduit.roles.coordinator import Coordinator, CoordinatorOutcome
 from kiro_conduit.roles.implementor import Implementor
 from kiro_conduit.roles.verifier import Verifier
@@ -47,6 +48,8 @@ from kiro_conduit.types import Task
 from kiro_conduit.worktree import WorktreeHandle, WorktreeManager
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from kiro_conduit.semantic import SemanticReviewer
 
 logger = logging.getLogger(__name__)
@@ -128,6 +131,9 @@ class ParallelOrchestrator:
         self._resume = resume
         # 运行时隔离：每个 task 的验证命令拿到一个不冲突的端口区间起点。
         self._isolation_base_port = isolation_base_port
+        # 跨 run 记忆：run 开始时 decay，run 结束时记录成功 plan。
+        self._memory = load_memory(memory_path(base_repo))
+        self._memory_path = memory_path(base_repo)
 
     async def run(self, base_branch: str = "main") -> ParallelRunReport:
         """跑全工作区：所有波次依次执行，波内并行。
@@ -136,6 +142,12 @@ class ParallelOrchestrator:
         ParallelRunReport.handles 拿到所有 worktree，最后自己决定何时调
         await wm.cleanup_all() 或类似清理。
         """
+        # 跨 run 记忆：每次 run 开始 decay 一次，让久不用的记忆自然衰减
+        removed = self._memory.decay_confidence()
+        if removed:
+            logger.info("[orchestrator] memory decay: removed %d stale pattern(s)", removed)
+            save_memory(self._memory_path, self._memory)
+
         waves = topological_waves(self._workspace)
         logger.info(
             "[orchestrator] %d waves total: %s",
@@ -292,6 +304,19 @@ class ParallelOrchestrator:
             skipped=tuple(skipped),
             handles=handles,
         )
+        # 跨 run 记忆：全部 task 通过时，记录为一条成功的 plan example
+        if report.all_passed and report.passed_count > 0:
+            task_ids = sorted(self._workspace.tasks.keys())
+            self._memory.add_plan_example(
+                spec_summary=f"{report.passed_count}-task run (all passed)",
+                task_ids=task_ids,
+                score=100,
+            )
+            save_memory(self._memory_path, self._memory)
+            logger.info(
+                "[orchestrator] memory: saved plan example (%d tasks, all passed)",
+                report.passed_count,
+            )
         self._publish(
             RunCompleted(
                 passed_count=report.passed_count,
@@ -338,11 +363,20 @@ class ParallelOrchestrator:
         """把当前进度整体重写进 run-state.json（幂等，每波跑完调一次）。"""
         for tid, oc in outcomes.items():
             h = handles.get(tid)
+            # 失败 task 保存最后一次 Verifier 反馈，让 resume 时 Coordinator 有上下文
+            feedback: str | None = None
+            failed_layer: str | None = None
+            if not oc.passed:
+                feedback = oc.last_verify_result.feedback[:500]  # 截断避免 JSON 过大
+                if oc.last_verify_result.failed_layer:
+                    failed_layer = str(oc.last_verify_result.failed_layer)
             state.record(
                 tid,
                 TaskRunStatus.PASSED if oc.passed else TaskRunStatus.FAILED,
                 branch=h.branch if h is not None else None,
                 attempts=oc.attempts,
+                last_failure_feedback=feedback,
+                last_failed_layer=failed_layer,
             )
         for tid in skipped:
             state.record(tid, TaskRunStatus.SKIPPED)
@@ -445,6 +479,7 @@ class ParallelOrchestrator:
                     review_timeout=self._review_timeout,
                 ),
                 max_attempts=self._max_attempts,
+                on_retry_success=self._make_nudge_callback(),
             )
             outcome = await coord.run_task(task)
             self._publish(
@@ -678,6 +713,14 @@ class ParallelOrchestrator:
             "KIRO_CONDUIT_PORT_BASE": str(port_base),
             "KIRO_CONDUIT_SCRATCH": str(scratch),
         }
+
+    def _make_nudge_callback(
+        self,
+    ) -> Callable[[str, str, str | None, int], None]:
+        """创建 nudge 回调，接入跨 run 记忆。"""
+        from kiro_conduit.memory import make_retry_success_nudge
+
+        return make_retry_success_nudge(self._memory, persist_path=self._memory_path)
 
     @staticmethod
     def _make_crash_outcome(task_id: str, exc: BaseException) -> CoordinatorOutcome:

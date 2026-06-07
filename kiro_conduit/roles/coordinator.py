@@ -14,6 +14,7 @@ M0 实现：
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 from kiro_conduit.roles.implementor import Implementor
@@ -21,6 +22,9 @@ from kiro_conduit.roles.verifier import Verifier
 from kiro_conduit.types import Task, TaskResult, VerifyResult
 
 logger = logging.getLogger(__name__)
+
+# 重试成功时的回调签名：(task_id, failed_feedback, failed_layer, attempts)
+RetrySuccessCallback = Callable[[str, str, str | None, int], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,12 +47,14 @@ class Coordinator:
         implementor: Implementor,
         verifier: Verifier,
         max_attempts: int = 3,
+        on_retry_success: RetrySuccessCallback | None = None,
     ) -> None:
         if max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
         self._implementor = implementor
         self._verifier = verifier
         self._max_attempts = max_attempts
+        self._on_retry_success = on_retry_success
 
     async def run_task(self, task: Task) -> CoordinatorOutcome:
         """跑一个任务，返回最终结果。"""
@@ -69,6 +75,27 @@ class Coordinator:
 
             if verify_result.passed:
                 logger.info("[coordinator] task=%s PASSED on attempt %d", task.id, attempt)
+                # 如果是重试后才过的（attempt > 1），触发 nudge 回调
+                if attempt > 1 and self._on_retry_success:
+                    _, prev_verify_result = history[-2]
+                    failed_layer = (
+                        str(prev_verify_result.failed_layer)
+                        if prev_verify_result.failed_layer
+                        else None
+                    )
+                    try:
+                        self._on_retry_success(
+                            task.id,
+                            prev_verify_result.feedback,
+                            failed_layer,
+                            attempt,
+                        )
+                    except Exception:
+                        # nudge 失败不应阻塞主流程
+                        logger.warning(
+                            "[coordinator] on_retry_success callback failed",
+                            exc_info=True,
+                        )
                 return CoordinatorOutcome(
                     task_id=task.id,
                     passed=True,
