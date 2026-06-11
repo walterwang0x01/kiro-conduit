@@ -843,6 +843,22 @@ class TestIntegrationCheck:
     def test_defaults_none(self, tmp_path: Path) -> None:
         assert load_workspace(write_dag(tmp_path, minimal_yaml())).integration_check is None
 
+    def test_format_parsed(self, tmp_path: Path) -> None:
+        p = write_dag(
+            tmp_path,
+            """
+            format: ruff check --fix .
+            phases:
+              - name: only
+                type: serial
+                tasks: [t1]
+            tasks:
+              t1: {spec: specs/t1.md}
+            shared_files: []
+            """,
+        )
+        assert load_workspace(p).format == "ruff check --fix ."
+
     def test_blank_rejected(self, tmp_path: Path) -> None:
         p = write_dag(
             tmp_path,

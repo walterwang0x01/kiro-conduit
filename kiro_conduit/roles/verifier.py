@@ -48,6 +48,7 @@ class Verifier:
         contract_baselines: dict[str, str] | None = None,
         semantic_reviewer: SemanticReviewer | None = None,
         review_timeout: float = 180.0,
+        format_cmd: str | None = None,
     ) -> None:
         """contract_baselines: file_path -> baseline_source。
         给 Layer 4 用：consumer 完成后，对比 worktree 里 file 的签名 vs baseline 的签名，
@@ -64,6 +65,7 @@ class Verifier:
         # None 显式区别于 NoOp：None 时 Layer 3 完全 skipped，给个 NoOp 时也 skipped 但有 feedback
         self._semantic_reviewer = semantic_reviewer
         self._review_timeout = review_timeout
+        self._format_cmd = format_cmd
 
     async def verify(self, task: Task, result: TaskResult) -> VerifyResult:
         """跑验证流水线。"""
@@ -89,6 +91,12 @@ class Verifier:
                 layers=[],
                 feedback="no files changed and no acceptance commands to verify",
             )
+
+        # 跑验证层之前先跑自动修复/格式化（auto-fix），把机械的 lint/格式问题修掉，
+        # 让 agent 只在真问题（测试/类型/逻辑）上被卡，而不是吹毛求疵的风格。
+        if self._format_cmd:
+            logger.info("[verifier format] $ %s", self._format_cmd)
+            await self._run_shell(self._format_cmd, task.cwd, task.env)
 
         layers: list[LayerResult] = []
         feedback_parts: list[str] = []

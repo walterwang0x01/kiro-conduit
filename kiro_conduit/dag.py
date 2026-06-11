@@ -146,6 +146,7 @@ class Workspace:
     repos: dict[str, str] = field(default_factory=dict)  # 跨仓库：仓库名 → 路径
     setup: str | None = None  # 每个 worktree 创建后执行的准备命令（装依赖/生成配置等）
     copy_files: tuple[str, ...] = ()  # 拷进每个 worktree 的本地（常 gitignored）文件，如 .env
+    format: str | None = None  # 验证前在 worktree 跑的自动修复/格式化命令（如 ruff --fix）
     integration_check: str | None = None  # 合并后对集成结果跑的全量验证命令
 
     def task(self, task_id: str) -> TaskDef:
@@ -208,6 +209,9 @@ def _parse_workspace(raw: dict[str, Any], workspace_root: Path) -> Workspace:
         not isinstance(integration_check, str) or not integration_check.strip()
     ):
         raise DagError("integration_check must be a non-empty string")
+    fmt = raw.get("format")
+    if fmt is not None and (not isinstance(fmt, str) or not fmt.strip()):
+        raise DagError("format must be a non-empty string")
     return Workspace(
         phases=phases,
         tasks=tasks,
@@ -216,6 +220,7 @@ def _parse_workspace(raw: dict[str, Any], workspace_root: Path) -> Workspace:
         repos=repos,
         setup=setup,
         copy_files=tuple(copy_files_raw),
+        format=fmt,
         integration_check=integration_check,
     )
 

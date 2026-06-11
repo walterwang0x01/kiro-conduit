@@ -140,6 +140,16 @@ copy_files: ['.env', 'config/local.yaml']
 
 在依赖合入之后、`setup` 之前执行，所以 `setup` 能用到拷进来的文件。
 
+### 自动修复 / 格式化（`format`）
+
+每个 task 验证**之前**，在它的 worktree 里跑一次自动修复/格式化命令，把机械的
+lint/格式问题先修掉——agent 只会在真问题（测试/类型/逻辑）上被卡，而不是被
+吹毛求疵的风格规则反复打回（实测 LLM 常栽在这类琐碎 lint 上）：
+
+```yaml
+format: ruff check --fix . && ruff format .   # 或 eslint --fix / prettier -w
+```
+
 ### 集成结果全量验证（`integration_check`）
 
 各 task 只验证自己那一块；要确认"拼起来还能跑"，在 `dag.yaml` 顶层声明

@@ -142,6 +142,22 @@ class TestVerifyImplementorFailure:
         assert result.layers  # 确实跑了验证层（而非短路）
 
     @pytest.mark.asyncio
+    async def test_format_cmd_runs_before_layers(self, tmp_path: Path) -> None:
+        """配了 format 时，验证前先跑它（auto-fix）——用它创建一个标记文件来证明跑过。"""
+        marker = tmp_path / "formatted.txt"
+        task = _make_task(tmp_path, ["true"])
+        v = Verifier(format_cmd=f"touch {marker}")
+        result = await v.verify(task, _make_success_result())
+        assert result.passed
+        assert marker.is_file()  # format 命令确实在验证流程里跑了
+
+    @pytest.mark.asyncio
+    async def test_no_format_cmd_is_noop(self, tmp_path: Path) -> None:
+        task = _make_task(tmp_path, ["true"])
+        result = await Verifier().verify(task, _make_success_result())
+        assert result.passed  # 没配 format 不影响
+
+    @pytest.mark.asyncio
     async def test_no_changes_fails_when_acceptance_fails(self, tmp_path: Path) -> None:
         """没改文件且 acceptance 不过（agent 真摆烂、目标没达成）→ 仍判失败。"""
         task = _make_task(tmp_path, ["false"])

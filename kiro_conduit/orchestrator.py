@@ -477,6 +477,7 @@ class ParallelOrchestrator:
                     contract_baselines=contract_baselines,
                     semantic_reviewer=self._semantic_reviewer,
                     review_timeout=self._review_timeout,
+                    format_cmd=self._workspace.format,
                 ),
                 max_attempts=self._max_attempts,
                 on_retry_success=self._make_nudge_callback(),
