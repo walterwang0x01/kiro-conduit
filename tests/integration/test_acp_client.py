@@ -267,3 +267,25 @@ async def test_abandoned_prompt_exception_is_retrieved_on_close(
     assert task.done()
     # 能正常取到异常（已被 done-callback retrieve，再取无害）→ 不会触发 GC 警告
     assert isinstance(task.exception(), ConnectionError)
+
+
+@pytest.mark.asyncio
+async def test_idle_timeout_raises_when_turn_silent(
+    mock_acp_config: Callable[[dict[str, Any]], AcpClientConfig],
+    default_mock_script: dict[str, Any],
+    tmp_path: Any,
+) -> None:
+    """一轮内长时间无任何事件（挂死）→ 迭代器按 idle_timeout 抛 TimeoutError，
+    交由上层（Implementor.run）退避重试，而不是无限等。"""
+    from dataclasses import replace
+
+    # 服务器拖 5s 才发 prompt 通知；把静默超时压到 0.3s → 迭代应在 0.3s 后超时
+    script = {**default_mock_script, "delays": {"before_notification": 5}}
+    cfg = replace(mock_acp_config(script), idle_timeout=0.3)
+    async with await AcpClient.spawn(cfg) as client:
+        await client.initialize()
+        sid = await client.new_session(cwd=tmp_path)
+        events = await client.prompt(sid, "hi")
+        with pytest.raises(TimeoutError):
+            async for _ in events:
+                pass

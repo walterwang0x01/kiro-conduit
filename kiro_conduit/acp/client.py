@@ -69,6 +69,10 @@ class AcpClientConfig:
     extra_env: dict[str, str] | None = None
     # 等待响应的超时时间（秒）
     response_timeout: float = 60.0
+    # 一轮 prompt 内"两个事件之间"的最大静默时长（秒）。超过则判该轮挂死、抛 TimeoutError。
+    # 用静默超时而非整轮超时：活跃但耗时长的任务只要持续产出事件就不会被误杀，
+    # 只有真正卡住（长时间无任何事件）才触发。
+    idle_timeout: float = 300.0
     # 自动决策代理发来的 session/request_permission：
     # "allow_once" / "allow_always" / "reject_once" / "reject_always"
     # kiro-conduit 默认全自动 allow_once，因为编排器跑在无人干预场景
@@ -214,6 +218,7 @@ class AcpClient:
                     "sessionId": session_id,
                     "prompt": [{"type": "text", "text": text}],
                 },
+                timeout=None,  # 整轮不设硬上限，由 _PromptIterator 的静默超时兜底
             ),
             name=f"acp-prompt-{session_id}",
         )
@@ -224,7 +229,7 @@ class AcpClient:
             lambda t: not t.cancelled() and t.exception()
         )
 
-        return _PromptIterator(queue, prompt_task)
+        return _PromptIterator(queue, prompt_task, idle_timeout=self._config.idle_timeout)
 
     async def cancel(self, session_id: str) -> None:
         """取消当前 session 的进行中操作。"""
@@ -267,8 +272,15 @@ class AcpClient:
 
     # --------------------------------------------------------------- internal
 
-    async def _call(self, method: str, params: dict[str, Any]) -> Any:
-        """发请求，等响应。"""
+    async def _call(
+        self, method: str, params: dict[str, Any], timeout: float | None = -1.0
+    ) -> Any:
+        """发请求，等响应。
+
+        timeout: 覆盖本次调用的整体超时；``-1.0``（默认）= 用 config.response_timeout，
+        ``None`` = 不设整轮上限（prompt 这轮交给 _PromptIterator 的静默超时兜底，
+        避免误杀慢任务）。
+        """
         if self._closed:
             raise ConnectionError("ACP client is closed")
         self._next_id += 1
@@ -279,8 +291,11 @@ class AcpClient:
 
         await self._send(req.to_wire())
 
+        eff = self._config.response_timeout if timeout == -1.0 else timeout
         try:
-            return await asyncio.wait_for(future, timeout=self._config.response_timeout)
+            if eff is None:
+                return await future
+            return await asyncio.wait_for(future, timeout=eff)
         finally:
             self._pending.pop(req_id, None)
 
@@ -528,9 +543,11 @@ class _PromptIterator:
         self,
         queue: asyncio.Queue[SessionEvent | None],
         prompt_task: asyncio.Task[Any],
+        idle_timeout: float = 300.0,
     ) -> None:
         self._queue = queue
         self._prompt_task = prompt_task
+        self._idle_timeout = idle_timeout
         self._terminated = False
 
     def __aiter__(self) -> _PromptIterator:
@@ -540,12 +557,23 @@ class _PromptIterator:
         if self._terminated:
             raise StopAsyncIteration
 
-        # 等队列下一条事件，或 prompt_task 完成
+        # 等队列下一条事件，或 prompt_task 完成；静默超过 idle_timeout 视作挂死
         get_task: asyncio.Task[SessionEvent | None] = asyncio.create_task(self._queue.get())
         done, _pending = await asyncio.wait(
             {get_task, self._prompt_task},
+            timeout=self._idle_timeout,
             return_when=asyncio.FIRST_COMPLETED,
         )
+
+        if not done:
+            # 静默超时：idle_timeout 内既无新事件、本轮也未结束 → 判该轮挂死
+            get_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await get_task
+            self._terminated = True
+            raise TimeoutError(
+                f"no ACP event for {self._idle_timeout:.0f}s; turn appears hung"
+            )
 
         if get_task in done:
             event = get_task.result()
