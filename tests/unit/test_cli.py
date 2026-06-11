@@ -11,7 +11,12 @@ from textwrap import dedent
 
 import pytest
 
-from kiro_conduit.cli import _resolve_dag, _venv_path_prepend, main
+from kiro_conduit.cli import (
+    _resolve_dag,
+    _venv_path_prepend,
+    _warn_unowned_shared_files,
+    main,
+)
 from kiro_conduit.merge import MergeOrchestrator, MergeReport, TaskMergeResult
 from kiro_conduit.orchestrator import ParallelOrchestrator, ParallelRunReport
 from kiro_conduit.roles.coordinator import CoordinatorOutcome
@@ -451,3 +456,64 @@ class TestVenvPathPrepend:
     def test_rejects_missing_venv(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit, match="venv"):
             _venv_path_prepend(tmp_path / "nope", "/usr/bin")
+
+
+class TestUnownedSharedFileWarning:
+    """合并前预警：被 ≥2 个任务创建却无 owner 的文件（如 db.py）。"""
+
+    def _ws(self, tmp_path: Path):  # type: ignore[no-untyped-def]
+        from kiro_conduit.dag import load_workspace
+
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "specs").mkdir(parents=True)
+        for t in ("t1", "t2"):
+            (ws_dir / "specs" / f"{t}.md").write_text("x\n")
+        (ws_dir / "dag.yaml").write_text(
+            dedent(
+                """
+                phases:
+                  - name: A
+                    type: parallel
+                    tasks: [t1, t2]
+                tasks:
+                  t1:
+                    spec: specs/t1.md
+                    files_owned: ["a.py"]
+                  t2:
+                    spec: specs/t2.md
+                    files_owned: ["b.py"]
+                shared_files: []
+                """
+            ).lstrip(),
+            encoding="utf-8",
+        )
+        return load_workspace(ws_dir / "dag.yaml")
+
+    def _report(self, files_by_task: dict[str, list[str]]) -> ParallelRunReport:
+        outcomes = {}
+        for tid, files in files_by_task.items():
+            tr = TaskResult(task_id=tid, success=True, diff="", files_changed=files)
+            vr = VerifyResult(
+                task_id=tid,
+                passed=True,
+                layers=[LayerResult(layer=VerifyLayer.STATIC, passed=True, output="ok")],
+                feedback="ok",
+            )
+            outcomes[tid] = CoordinatorOutcome(
+                task_id=tid, passed=True, attempts=1,
+                last_task_result=tr, last_verify_result=vr, history=[(tr, vr)],
+            )
+        return ParallelRunReport(outcomes=outcomes, skipped=(), handles={})
+
+    def test_unowned_file_by_two_tasks_warns(self, tmp_path: Path) -> None:
+        ws = self._ws(tmp_path)
+        report = self._report(
+            {"t1": ["a.py", "app/services/db.py"], "t2": ["b.py", "app/services/db.py"]}
+        )
+        assert _warn_unowned_shared_files(ws, report) == ["app/services/db.py"]
+
+    def test_owned_or_single_creator_no_warn(self, tmp_path: Path) -> None:
+        ws = self._ws(tmp_path)
+        # a.py 有 owner；db.py 只被 t2 一个创建 → 都不告警
+        report = self._report({"t1": ["a.py"], "t2": ["b.py", "app/services/db.py"]})
+        assert _warn_unowned_shared_files(ws, report) == []

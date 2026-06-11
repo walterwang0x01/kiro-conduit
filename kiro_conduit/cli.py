@@ -87,6 +87,35 @@ def _print_parallel_report(ws: Workspace, report: ParallelRunReport) -> None:
         print(f"  {mark} {tid:<{tw}}  {model:<{mw}}  {status:<7}  "
               f"{out.attempts:<3}  {files}")
 
+def _warn_unowned_shared_files(ws: Workspace, report: ParallelRunReport) -> list[str]:
+    """预警：被 ≥2 个任务创建、却不在任何 files_owned 的文件。
+
+    各任务由独立 Kiro 实例创建，谁都没认领的共享基建文件（如 app/services/db.py）
+    会被多个任务各造一份、内容分歧 → 合并时 add/add 冲突。这里在合并前用各任务已有的
+    files_changed 数据预测此类冲突并给出修法：把该文件归给某个 foundation 任务独家所有。
+    返回命中的文件列表（便于测试），并打印告警。
+    """
+    owned: set[str] = set()
+    for t in ws.tasks.values():
+        owned.update(t.files_owned)
+    creators: dict[str, list[str]] = {}
+    for tid, out in report.outcomes.items():
+        if not out.passed:
+            continue
+        for f in out.last_task_result.files_changed:
+            if f not in owned:
+                creators.setdefault(f, []).append(tid)
+    hits = sorted(f for f, ts in creators.items() if len(ts) >= 2)
+    if hits:
+        print(
+            "\n⚠ 合并风险：以下文件被多个任务创建却不属于任何任务（无 owner），"
+            "合并时很可能 add/add 冲突——建议把它归给一个 foundation 任务的 files_owned："
+        )
+        for f in hits:
+            print(f"    {f}  ← {', '.join(sorted(creators[f]))}")
+    return hits
+
+
 async def _review_integration(
     args: argparse.Namespace, base_repo: Path, base_branch: str, specs_dir: Path
 ) -> None:
@@ -290,6 +319,8 @@ async def _run(args: argparse.Namespace) -> int:
     if not successful:
         print("\n✗ 没有任何任务通过，无可合并")
         return 1
+
+    _warn_unowned_shared_files(ws, report)
 
     # 即便部分任务失败/跳过，也把已通过的组装进 kiro-conduit/integration，
     # 给一个可 review / 可用的集成结果（而不是因一个失败丢掉全部成果）。
