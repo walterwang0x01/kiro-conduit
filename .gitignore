@@ -47,3 +47,6 @@ runtime/
 
 # Kiro 本地配置（agent 配置可能含个人偏好，不入仓）
 .kiro/settings/
+
+# CodeGraph
+.codegraph/
