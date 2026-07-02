@@ -14,9 +14,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import os
+import signal
+from collections.abc import Coroutine
 from pathlib import Path
+from typing import Any
 
 from kiro_conduit.dag import Workspace, load_workspace
 from kiro_conduit.events import EventBus
@@ -544,9 +548,54 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "plan":
         logging.basicConfig(level=logging.INFO, format=_LOG_FMT)
-        return asyncio.run(_plan(args))
+        return _run_with_signal_handling(_plan(args))
     # run：日志（控制台 + 文件）由 _run 内部配置（需要 base_repo 定位日志文件）
-    return asyncio.run(_run(args))
+    return _run_with_signal_handling(_run(args))
+
+
+def _run_with_signal_handling(coro: Coroutine[Any, Any, int]) -> int:
+    """跑 coro 直到完成，SIGTERM/SIGINT 时优雅取消而不是硬退出。
+
+    背景：不装信号处理器时，Python 收到 SIGTERM 直接终止进程——正在跑的
+    `async with await AcpClient.spawn(...)` 块的 __aexit__（负责 terminate
+    子进程）根本不会执行，已经 spawn 的 kiro-cli acp 子进程会变孤儿残留。
+
+    这里把信号转换成对主 task 的 asyncio 取消：取消会像异常一样沿 await 链
+    传播，途经的每个 `async with AcpClient` 块的 __aexit__ 都会正常跑到，
+    子进程按现有的 terminate→5s→kill 逻辑被清理。不改动 orchestrator /
+    AcpClient 本身——它们的清理路径本来就是对的，只是从未被信号触发过。
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    task = loop.create_task(coro)
+
+    def _cancel(*_: Any) -> None:
+        task.cancel()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, _cancel)
+        except (NotImplementedError, AttributeError):
+            # Windows 等不支持 add_signal_handler 的平台：跳过，退化为默认行为
+            break
+
+    try:
+        return loop.run_until_complete(task)
+    except asyncio.CancelledError:
+        print("\n⏹ 已中止（收到终止信号），子进程正在收尾…")
+        return 130  # 128 + SIGINT，shell 惯例
+    except SystemExit:
+        # _run()/_plan() 内部用 `raise SystemExit(msg)` 表示"参数/前置条件错误"——
+        # 调用方（包括测试）依赖 main() 继续 raise SystemExit，这里原样透传，
+        # 保持跟旧版 asyncio.run() 一致的对外契约。
+        # task.exception() 主动取走一次，避免 asyncio 在 GC 时打
+        # "Task exception was never retrieved" 噪声（run_until_complete 抛出的
+        # 是同一个异常对象，但 Task 自身的"已取走"标记要单独消费）。
+        with contextlib.suppress(BaseException):
+            task.exception()
+        raise
+    finally:
+        loop.close()
 
 
 if __name__ == "__main__":
