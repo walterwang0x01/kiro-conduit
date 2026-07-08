@@ -69,10 +69,16 @@ class Implementor:
             task.cwd,
         )
         transcript_parts: list[str] = []
+        resolved_runtime: RuntimeConfig | None = None
 
         for attempt in range(1, self._max_retries + 2):
             try:
-                transcript_parts = await self._run_acp(task)
+                run_result = await self._run_acp(task)
+                if isinstance(run_result, tuple):
+                    transcript_parts, resolved_runtime = run_result
+                else:
+                    transcript_parts = run_result
+                    resolved_runtime = self._runtime
                 break
             except (TimeoutError, ConnectionError, AcpError) as exc:
                 # AcpError：内部错误(-32603)与服务端错误区间(-32000~-32099)视为瞬时、退避重试；
@@ -103,6 +109,12 @@ class Implementor:
                     files_changed=[],
                     error=f"{type(exc).__name__}: {exc}",
                     transcript="".join(transcript_parts),
+                    runtime_kind=resolved_runtime.kind if resolved_runtime else self._runtime.kind,
+                    model=(
+                        (self._model or resolved_runtime.model)
+                        if resolved_runtime
+                        else self._model
+                    ),
                 )
 
         # 收集 git 改动
@@ -118,6 +130,10 @@ class Implementor:
                 files_changed=[],
                 error=f"git collect failed: {exc}",
                 transcript="".join(transcript_parts),
+                runtime_kind=resolved_runtime.kind if resolved_runtime else self._runtime.kind,
+                model=(
+                    (self._model or resolved_runtime.model) if resolved_runtime else self._model
+                ),
             )
 
         if not files_changed:
@@ -130,6 +146,10 @@ class Implementor:
                 error="no files changed",
                 transcript="".join(transcript_parts),
                 no_changes=True,
+                runtime_kind=resolved_runtime.kind if resolved_runtime else self._runtime.kind,
+                model=(
+                    (self._model or resolved_runtime.model) if resolved_runtime else self._model
+                ),
             )
 
         return TaskResult(
@@ -139,15 +159,19 @@ class Implementor:
             files_changed=files_changed,
             error=None,
             transcript="".join(transcript_parts),
+            runtime_kind=resolved_runtime.kind if resolved_runtime else self._runtime.kind,
+            model=(
+                (self._model or resolved_runtime.model) if resolved_runtime else self._model
+            ),
         )
 
-    async def _run_acp(self, task: Task) -> list[str]:
+    async def _run_acp(self, task: Task) -> tuple[list[str], RuntimeConfig]:
         """跑一次完整 agent 交互，返回 transcript 片段。"""
         if self._runtime.kind == "cursor-agent-cli":
             return await self._run_cursor(task)
         return await self._run_kiro_acp(task)
 
-    async def _run_cursor(self, task: Task) -> list[str]:
+    async def _run_cursor(self, task: Task) -> tuple[list[str], RuntimeConfig]:
         transcript_parts: list[str] = []
         full_prompt = self._render_prompt(task)
         runtime = resolve_runtime_for_prompt(self._runtime, full_prompt, role="implementor")
@@ -157,9 +181,9 @@ class Implementor:
             prompt=full_prompt,
         ):
             transcript_parts.append(chunk)
-        return transcript_parts
+        return transcript_parts, runtime
 
-    async def _run_kiro_acp(self, task: Task) -> list[str]:
+    async def _run_kiro_acp(self, task: Task) -> tuple[list[str], RuntimeConfig]:
         """Kiro ACP 路径（原实现）。"""
         full_prompt = self._render_prompt(task)
         runtime = resolve_runtime_for_prompt(self._runtime, full_prompt, role="implementor")
@@ -193,7 +217,7 @@ class Implementor:
                         event.stop_reason,
                     )
                     break
-        return transcript_parts
+        return transcript_parts, runtime
 
     @staticmethod
     def _render_prompt(task: Task) -> str:

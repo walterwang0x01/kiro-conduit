@@ -150,6 +150,7 @@ class TestRunGuardsAndLog:
         monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
         main(["run", "--workspace", str(ws)])
         assert (ws / ".kiro-conduit" / "run.log").is_file()
+        assert (ws / ".kiro-conduit" / "runtime-metrics.json").is_file()
 
 
 class TestResolveDag:

@@ -26,6 +26,13 @@ from kiro_conduit.dag import Workspace, load_workspace
 from kiro_conduit.events import EventBus
 from kiro_conduit.git_utils import run_git
 from kiro_conduit.merge import MergeOrchestrator, MergeReport
+from kiro_conduit.metrics import (
+    RuntimeMetricRecord,
+    load_metrics,
+    metrics_path,
+    save_metrics,
+    summarize_metrics,
+)
 from kiro_conduit.orchestrator import ParallelOrchestrator, ParallelRunReport
 from kiro_conduit.run_state import load_state, state_path
 from kiro_conduit.runtime import RuntimeConfig
@@ -116,6 +123,37 @@ def _print_parallel_report(ws: Workspace, report: ParallelRunReport) -> None:
         files = len(out.last_task_result.files_changed)
         print(f"  {mark} {tid:<{tw}}  {model:<{mw}}  {status:<7}  "
               f"{out.attempts:<3}  {files}")
+
+
+def _collect_runtime_metrics(report: ParallelRunReport) -> list[RuntimeMetricRecord]:
+    records: list[RuntimeMetricRecord] = []
+    for tid, out in sorted(report.outcomes.items()):
+        tr = out.last_task_result
+        records.append(
+            RuntimeMetricRecord(
+                task_id=tid,
+                runtime_kind=tr.runtime_kind or "unknown",
+                model=tr.model or "(default)",
+                passed=out.passed,
+                attempts=out.attempts,
+                files_changed=len(tr.files_changed),
+            )
+        )
+    return records
+
+
+def _print_runtime_metrics_report(records: list[RuntimeMetricRecord]) -> None:
+    rows = summarize_metrics(records)
+    if not rows:
+        return
+    print("\n✓ runtime/model metrics:")
+    for row in rows:
+        print(
+            "  "
+            f"{row['runtime_kind']} / {row['model']}: "
+            f"total={row['total']} success={row['success']} failed={row['failed']} "
+            f"success_rate={float(row['success_rate']):.0%} avg_files={row['avg_files_changed']}"
+        )
 
 def _warn_unowned_shared_files(ws: Workspace, report: ParallelRunReport) -> list[str]:
     """预警：被 ≥2 个任务创建、却不在任何 files_owned 的文件。
@@ -373,6 +411,11 @@ async def _run(args: argparse.Namespace) -> int:
 
     report = await _run_parallel(orch, ws, bus, base_branch)
     _print_parallel_report(ws, report)
+    current_metrics = _collect_runtime_metrics(report)
+    all_metrics_path = metrics_path(base_repo)
+    all_metrics = load_metrics(all_metrics_path) + current_metrics
+    save_metrics(all_metrics_path, all_metrics)
+    _print_runtime_metrics_report(all_metrics)
 
     successful = {tid for tid, out in report.outcomes.items() if out.passed}
 

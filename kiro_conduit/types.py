@@ -54,6 +54,8 @@ class TaskResult:
     error: str | None = None
     transcript: str = ""  # Implementor 的全部输出，方便调试
     no_changes: bool = False  # 没改任何文件（可能是依赖已做掉，由 verifier 判定真假）
+    runtime_kind: str | None = None
+    model: str | None = None
 
 
 class VerifyLayer(StrEnum):
