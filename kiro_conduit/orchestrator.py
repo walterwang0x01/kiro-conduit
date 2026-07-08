@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from kiro_conduit.dag import TaskDef, Workspace, topological_waves
+from kiro_conduit.runtime.types import RuntimeConfig
 from kiro_conduit.events import (
     EventBus,
     RunCompleted,
@@ -97,6 +98,7 @@ class ParallelOrchestrator:
         max_concurrency: int = 4,
         max_attempts: int = 3,
         kiro_cli_path: str = "kiro-cli",
+        runtime_kind: str = "kiro-acp",
         prompt_timeout: float = 600.0,
         semantic_reviewer: SemanticReviewer | None = None,
         review_timeout: float = 180.0,
@@ -116,6 +118,11 @@ class ParallelOrchestrator:
         self._max_concurrency = max_concurrency
         self._max_attempts = max_attempts
         self._kiro_cli_path = kiro_cli_path
+        self._runtime = RuntimeConfig.from_cli(
+            kiro_cli=kiro_cli_path,
+            runtime_kind="cursor-cli" if runtime_kind == "cursor-cli" else "kiro-acp",
+            timeout=prompt_timeout,
+        )
         self._prompt_timeout = prompt_timeout
         self._setup_timeout = setup_timeout
         self._sandbox = sandbox
@@ -466,7 +473,7 @@ class ParallelOrchestrator:
             )
             coord = Coordinator(
                 implementor=_LockAwareImplementor(
-                    kiro_cli_path=self._kiro_cli_path,
+                    runtime=self._runtime,
                     prompt_timeout=self._prompt_timeout,
                     lock_manager=lock_manager,
                     shared_files=task_def.shared_files_to_modify,
@@ -780,7 +787,7 @@ class _LockAwareImplementor(Implementor):
     def __init__(
         self,
         *,
-        kiro_cli_path: str,
+        runtime: RuntimeConfig,
         prompt_timeout: float,
         lock_manager: SharedFileLockManager,
         shared_files: tuple[str, ...],
@@ -788,7 +795,7 @@ class _LockAwareImplementor(Implementor):
         sandbox: bool = False,
     ) -> None:
         super().__init__(
-            kiro_cli_path=kiro_cli_path,
+            runtime=runtime,
             prompt_timeout=prompt_timeout,
             model=model,
             sandbox=sandbox,

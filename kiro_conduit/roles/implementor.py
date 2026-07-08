@@ -25,6 +25,8 @@ from kiro_conduit.acp import (
     ToolCallEvent,
     TurnEnd,
 )
+from kiro_conduit.runtime.cursor_cli import cursor_prompt_stream
+from kiro_conduit.runtime.types import RuntimeConfig
 from kiro_conduit.git_utils import collect_diff, list_changed_files
 from kiro_conduit.types import Task, TaskResult
 
@@ -36,6 +38,8 @@ class Implementor:
 
     def __init__(
         self,
+        runtime: RuntimeConfig | None = None,
+        *,
         kiro_cli_path: str = "kiro-cli",
         prompt_timeout: float = 600.0,
         model: str | None = None,
@@ -44,7 +48,9 @@ class Implementor:
         sandbox: bool = False,
         idle_timeout: float = 300.0,
     ) -> None:
-        self._kiro_cli_path = kiro_cli_path
+        self._runtime = runtime or RuntimeConfig.from_cli(
+            kiro_cli=kiro_cli_path, model=model, timeout=prompt_timeout
+        )
         self._prompt_timeout = prompt_timeout
         self._idle_timeout = idle_timeout
         self._model = model
@@ -135,14 +141,30 @@ class Implementor:
         )
 
     async def _run_acp(self, task: Task) -> list[str]:
-        """跑一次完整 ACP 交互，返回 transcript 片段。瞬时错误（超时/连接）向上抛，
-        由 run() 的退避循环处理。"""
+        """跑一次完整 agent 交互，返回 transcript 片段。"""
+        if self._runtime.kind == "cursor-cli":
+            return await self._run_cursor(task)
+        return await self._run_kiro_acp(task)
+
+    async def _run_cursor(self, task: Task) -> list[str]:
+        transcript_parts: list[str] = []
+        full_prompt = self._render_prompt(task)
+        async for chunk in cursor_prompt_stream(
+            self._runtime,
+            cwd=task.cwd,
+            prompt=full_prompt,
+        ):
+            transcript_parts.append(chunk)
+        return transcript_parts
+
+    async def _run_kiro_acp(self, task: Task) -> list[str]:
+        """Kiro ACP 路径（原实现）。"""
         config = AcpClientConfig(
-            kiro_cli_path=self._kiro_cli_path,
+            kiro_cli_path=self._runtime.bin,
             cwd=task.cwd,
             response_timeout=self._prompt_timeout,
             idle_timeout=self._idle_timeout,
-            model=self._model,
+            model=self._model or self._runtime.model,
             sandbox_writable=(task.cwd,) if self._sandbox else None,
         )
         transcript_parts: list[str] = []

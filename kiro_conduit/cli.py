@@ -303,6 +303,7 @@ async def _run(args: argparse.Namespace) -> int:
         max_concurrency=args.max_concurrency,
         max_attempts=args.max_attempts,
         kiro_cli_path=args.kiro_cli,
+        runtime_kind=getattr(args, "runtime_kind", "kiro-acp"),
         resume=args.resume,
         event_bus=bus,
         semantic_reviewer=task_reviewer,
@@ -507,7 +508,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     run_p.add_argument("--max-concurrency", type=int, default=4)
     run_p.add_argument("--max-attempts", type=int, default=3)
-    run_p.add_argument("--kiro-cli", default="kiro-cli", help="path to kiro-cli binary")
+    run_p.add_argument("--kiro-cli", default="kiro-cli", help="path to agent binary (kiro-cli or agent)")
+    run_p.add_argument(
+        "--runtime-kind",
+        choices=("kiro-acp", "cursor-cli"),
+        default="kiro-acp",
+        help="agent runtime: kiro-cli acp (default) or cursor agent CLI",
+    )
     run_p.add_argument("--resume", action="store_true", help="resume from prior run-state")
     run_p.add_argument(
         "--fresh", action="store_true",
