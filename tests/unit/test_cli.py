@@ -93,6 +93,7 @@ class TestPlanCommand:
         assert set(ws.tasks) == {"a", "b"}
         assert topological_waves(ws) == [["a"], ["b"]]
         assert (out / "specs" / "a.md").read_text().startswith("build a")
+        assert (out / ".kiro-conduit" / "runtime-metrics.json").is_file()
 
     def test_plan_missing_spec_errors(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit, match="spec file not found"):
@@ -246,22 +247,46 @@ class TestMain:
                 {
                   "version": 1,
                   "records": [
-                    {"task_id": "t1", "runtime_kind": "cursor-agent-cli", "model": "Auto",
-                     "passed": true, "attempts": 1, "files_changed": 1},
-                    {"task_id": "t2", "runtime_kind": "cursor-agent-cli", "model": "Auto",
-                     "passed": true, "attempts": 1, "files_changed": 1},
-                    {"task_id": "t3", "runtime_kind": "cursor-agent-cli", "model": "Auto",
-                     "passed": true, "attempts": 1, "files_changed": 1},
-                    {"task_id": "t4", "runtime_kind": "cursor-agent-cli", "model": "Auto",
-                     "passed": true, "attempts": 1, "files_changed": 1},
-                    {"task_id": "t5", "runtime_kind": "cursor-agent-cli", "model": "Auto",
-                     "passed": true, "attempts": 1, "files_changed": 1},
-                    {"task_id": "t6", "runtime_kind": "cursor-agent-cli", "model": "Auto",
-                     "passed": true, "attempts": 1, "files_changed": 1},
-                    {"task_id": "t7", "runtime_kind": "cursor-agent-cli", "model": "Auto",
-                     "passed": true, "attempts": 1, "files_changed": 1},
-                    {"task_id": "t8", "runtime_kind": "cursor-agent-cli", "model": "Auto",
-                     "passed": true, "attempts": 1, "files_changed": 1}
+                    {
+                      "task_id": "t1", "task_bucket": "conduit-run",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    },
+                    {
+                      "task_id": "t2", "task_bucket": "conduit-run",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    },
+                    {
+                      "task_id": "t3", "task_bucket": "conduit-run",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    },
+                    {
+                      "task_id": "t4", "task_bucket": "conduit-run",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    },
+                    {
+                      "task_id": "t5", "task_bucket": "conduit-run",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    },
+                    {
+                      "task_id": "t6", "task_bucket": "conduit-run",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    },
+                    {
+                      "task_id": "t7", "task_bucket": "conduit-run",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    },
+                    {
+                      "task_id": "t8", "task_bucket": "conduit-run",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    }
                   ]
                 }
                 """
@@ -279,6 +304,199 @@ class TestMain:
 
         monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
         code = main(["run", "--workspace", str(ws), "--adaptive-mode", "apply-safe"])
+        assert code == 0
+        assert captured["runtime_kind"] == "cursor-agent-cli"
+
+    def test_run_apply_aggressive_prefers_higher_multi_objective_score(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws = _write_ws(tmp_path)
+        metrics_dir = ws / ".kiro-conduit"
+        metrics_dir.mkdir(exist_ok=True)
+        (metrics_dir / "runtime-metrics.json").write_text(
+            dedent(
+                """
+                {
+                  "version": 1,
+                  "records": [
+                    {
+                      "task_id": "c1", "task_bucket": "conduit-run",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    },
+                    {
+                      "task_id": "c2", "task_bucket": "conduit-run",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    },
+                    {
+                      "task_id": "c3", "task_bucket": "conduit-run",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    },
+                    {
+                      "task_id": "k1", "task_bucket": "conduit-run",
+                      "runtime_kind": "kiro-cli-acp", "model": "claude-opus-4.8",
+                      "passed": true, "attempts": 3, "files_changed": 9
+                    },
+                    {
+                      "task_id": "k2", "task_bucket": "conduit-run",
+                      "runtime_kind": "kiro-cli-acp", "model": "claude-opus-4.8",
+                      "passed": true, "attempts": 3, "files_changed": 9
+                    },
+                    {
+                      "task_id": "k3", "task_bucket": "conduit-run",
+                      "runtime_kind": "kiro-cli-acp", "model": "claude-opus-4.8",
+                      "passed": true, "attempts": 3, "files_changed": 9
+                    }
+                  ]
+                }
+                """
+            ).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        captured: dict[str, object] = {}
+
+        async def fake_run(self, base_branch: str = "main") -> ParallelRunReport:  # type: ignore[no-untyped-def]
+            captured["runtime_kind"] = self._runtime.kind
+            return ParallelRunReport(
+                outcomes={"t1": _passing("t1")}, skipped=(), handles={}
+            )
+
+        monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
+        code = main(["run", "--workspace", str(ws), "--adaptive-mode", "apply-aggressive"])
+        assert code == 0
+        assert captured["runtime_kind"] == "cursor-agent-cli"
+
+    def test_plan_apply_aggressive_uses_planner_bucket(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from kiro_conduit import planner as planner_mod
+        from kiro_conduit.planner import TaskPlan
+
+        spec = tmp_path / "spec.md"
+        spec.write_text("planner bucket", encoding="utf-8")
+        out = tmp_path / "ws"
+        metrics_dir = out / ".kiro-conduit"
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+        (metrics_dir / "runtime-metrics.json").write_text(
+            dedent(
+                """
+                {
+                  "version": 1,
+                  "records": [
+                    {
+                      "task_id": "p1", "task_bucket": "planner",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    },
+                    {
+                      "task_id": "p2", "task_bucket": "planner",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    },
+                    {
+                      "task_id": "p3", "task_bucket": "planner",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 1
+                    }
+                  ]
+                }
+                """
+            ).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        captured: dict[str, object] = {}
+
+        async def fake_generate(self, spec_text, cwd):  # type: ignore[no-untyped-def]
+            captured["runtime_kind"] = self._runtime.kind
+            assert "planner bucket" in spec_text
+            return [TaskPlan(id="a", prompt="build a", files_owned=["a.py"])]
+
+        monkeypatch.setattr(planner_mod.KiroPlanner, "generate_plan", fake_generate)
+        code = main(
+            [
+                "plan",
+                "--spec",
+                str(spec),
+                "--out",
+                str(out),
+                "--adaptive-mode",
+                "apply-aggressive",
+            ]
+        )
+        assert code == 0
+        assert captured["runtime_kind"] == "cursor-agent-cli"
+
+    def test_run_apply_aggressive_uses_reviewer_bucket(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws = _write_ws(tmp_path)
+        metrics_dir = ws / ".kiro-conduit"
+        metrics_dir.mkdir(exist_ok=True)
+        (metrics_dir / "runtime-metrics.json").write_text(
+            dedent(
+                """
+                {
+                  "version": 1,
+                  "records": [
+                    {
+                      "task_id": "r1", "task_bucket": "reviewer",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 0,
+                      "execution_ok": true, "verdict_pass": false
+                    },
+                    {
+                      "task_id": "r2", "task_bucket": "reviewer",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 0,
+                      "execution_ok": true, "verdict_pass": false
+                    },
+                    {
+                      "task_id": "r3", "task_bucket": "reviewer",
+                      "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                      "passed": true, "attempts": 1, "files_changed": 0,
+                      "execution_ok": true, "verdict_pass": true
+                    }
+                  ]
+                }
+                """
+            ).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        captured: dict[str, object] = {}
+
+        async def fake_run(self, base_branch: str = "main") -> ParallelRunReport:  # type: ignore[no-untyped-def]
+            return ParallelRunReport(
+                outcomes={"t1": _passing("t1")}, skipped=(), handles={}
+            )
+
+        from kiro_conduit.semantic import KiroSemanticReviewer
+
+        def capture_reviewer_init(self, *a, **k):  # type: ignore[no-untyped-def]
+            runtime = k.get("runtime") or (a[0] if a else None)
+            if runtime is not None:
+                captured["runtime_kind"] = runtime.kind
+            object.__setattr__(self, "_runtime", runtime)
+            object.__setattr__(self, "_timeout", 180.0)
+            object.__setattr__(self, "_max_diff_chars", 30000)
+            object.__setattr__(self, "_model", k.get("model"))
+
+        monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
+        monkeypatch.setattr(KiroSemanticReviewer, "__init__", capture_reviewer_init)
+        code = main(
+            [
+                "run",
+                "--workspace",
+                str(ws),
+                "--review-tasks",
+                "--adaptive-mode",
+                "apply-aggressive",
+            ]
+        )
         assert code == 0
         assert captured["runtime_kind"] == "cursor-agent-cli"
 

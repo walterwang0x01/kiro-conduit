@@ -14,6 +14,7 @@ M0 实现：
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
@@ -37,6 +38,7 @@ class CoordinatorOutcome:
     last_task_result: TaskResult
     last_verify_result: VerifyResult
     history: list[tuple[TaskResult, VerifyResult]] = field(default_factory=list)
+    duration_ms: int = 0
 
 
 class Coordinator:
@@ -60,6 +62,7 @@ class Coordinator:
         """跑一个任务，返回最终结果。"""
         history: list[tuple[TaskResult, VerifyResult]] = []
         current_task = task
+        started = time.monotonic()
 
         for attempt in range(1, self._max_attempts + 1):
             logger.info(
@@ -103,6 +106,7 @@ class Coordinator:
                     last_task_result=task_result,
                     last_verify_result=verify_result,
                     history=history,
+                    duration_ms=max(0, int((time.monotonic() - started) * 1000)),
                 )
 
             logger.warning(
@@ -128,6 +132,7 @@ class Coordinator:
             last_task_result=last_task,
             last_verify_result=last_verify,
             history=history,
+            duration_ms=max(0, int((time.monotonic() - started) * 1000)),
         )
 
     @staticmethod

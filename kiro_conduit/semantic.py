@@ -39,10 +39,18 @@ class ReviewContext:
 
 @dataclass(frozen=True, slots=True)
 class ReviewResult:
-    """reviewer 返回的结论。"""
+    """reviewer 返回的结论。
+
+    passed: 审查结论（PASS/FAIL）——找到问题也算正常产出，不能当 runtime 失败。
+    execution_ok: runtime 本身是否跑通；None=未知（兼容旧调用方）。
+    runtime_kind / model: 实际使用的 runtime，便于 metrics 落盘。
+    """
 
     passed: bool
     feedback: str  # 给 Coordinator 重试时塞进 prompt 的反馈
+    execution_ok: bool | None = None
+    runtime_kind: str | None = None
+    model: str | None = None
 
     @classmethod
     def passed_default(cls) -> ReviewResult:
@@ -159,8 +167,9 @@ class KiroSemanticReviewer:
             diff=diff,
         )
 
+        runtime = resolve_runtime_for_prompt(self._runtime, prompt, role="reviewer")
         try:
-            response = await self._run_kiro_review(ctx.cwd, prompt)
+            response = await self._run_kiro_review(ctx.cwd, prompt, runtime)
         except (TimeoutError, ConnectionError) as exc:
             # reviewer 本身挂了不应该让 verifier 也挂——按 fail-open 处理：log 一下，PASS
             # 这是 ARCHITECTURE.md "verifier 挂了不能阻塞业务" 的简化版
@@ -172,14 +181,24 @@ class KiroSemanticReviewer:
             return ReviewResult(
                 passed=True,
                 feedback=f"(reviewer crashed: {exc}; failed open)",
+                execution_ok=False,
+                runtime_kind=runtime.kind,
+                model=self._model or runtime.model,
             )
 
         passed, feedback = parse_review_response(response)
-        return ReviewResult(passed=passed, feedback=feedback)
+        return ReviewResult(
+            passed=passed,
+            feedback=feedback,
+            execution_ok=True,
+            runtime_kind=runtime.kind,
+            model=self._model or runtime.model,
+        )
 
-    async def _run_kiro_review(self, cwd: Path, prompt: str) -> str:
+    async def _run_kiro_review(
+        self, cwd: Path, prompt: str, runtime: RuntimeConfig
+    ) -> str:
         """起一个独立 ACP session，发 review prompt，收齐所有 message chunk 拼成响应。"""
-        runtime = resolve_runtime_for_prompt(self._runtime, prompt, role="reviewer")
         if runtime.kind == "cursor-agent-cli":
             return await cursor_prompt_text(runtime, cwd=cwd, prompt=prompt)
 
@@ -269,6 +288,7 @@ async def run_with_timeout(
         return ReviewResult(
             passed=True,
             feedback=f"(reviewer timed out after {timeout}s; failed open)",
+            execution_ok=False,
         )
 
 

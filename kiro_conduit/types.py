@@ -75,6 +75,10 @@ class LayerResult:
     passed: bool
     output: str  # stdout/stderr 摘要
     skipped: bool = False  # 没配相应检查时为 True
+    # SEMANTIC 层附加：runtime 执行成败 ≠ 审查结论（passed）
+    execution_ok: bool | None = None
+    runtime_kind: str | None = None
+    model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

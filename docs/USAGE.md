@@ -117,11 +117,26 @@ kiro-conduit run --workspace my-workspace/ --merge
 | `--kiro-hard-tier <tier>` | Kiro 复杂任务优先 tier |
 | `--kiro-medium-threshold N` | 进入中等复杂度路由的阈值（默认 4） |
 | `--kiro-hard-threshold N` | 进入高复杂度路由的阈值（默认 7） |
+| `--adaptive-mode <mode>` | 自适应：`off` / `suggest`（默认）/ `apply-safe` / `apply-aggressive`；按角色桶（implementor/planner/reviewer）生效 |
+| `--implementor-runtime-kind` / `--reviewer-runtime-kind` / `--planner-runtime-kind` | 角色级 runtime 覆盖 |
+| `--implementor-bin` / `--reviewer-bin` / `--planner-bin` | 角色级二进制覆盖 |
+
+`plan` 子命令同样支持 `--adaptive-mode` 与 planner runtime 相关参数。
+
+查看历史指标：
+
+```bash
+kiro-conduit report --base-repo .
+```
 
 ## 成本优先的多模型路由
 
 当 runtime 是 `kiro-cli-acp` 时，`kiro-conduit` 会先根据 prompt 复杂度打分，再从
 `kiro-cli chat --list-models --format json` 的实时结果中选模型，而不是硬编码假定模型名。
+
+指标按角色分桶（`implementor` / `planner` / `reviewer`），自适应用多目标分数
+（成功率 + 耗时 + 改动规模 + 成本），而不是只看成功率。reviewer 的审查结论
+（`verdict_pass`）与 runtime 执行成败（`execution_ok`）分开统计。
 
 推荐起步策略：
 
@@ -132,6 +147,7 @@ kiro-conduit run \
   --kiro-cli agent \
   --reviewer-runtime-kind kiro-cli-acp \
   --reviewer-bin kiro-cli \
+  --adaptive-mode suggest \
   --kiro-simple-tier balanced \
   --kiro-medium-tier strong \
   --kiro-hard-tier max
@@ -142,6 +158,8 @@ kiro-conduit run \
 - implementor：默认更偏低成本 / 高吞吐
 - reviewer：默认更偏强模型
 - planner：如需更稳，也可以单独切到 `kiro-cli-acp`
+
+完整生产说明见 [`runtime-routing.md`](./runtime-routing.md)。
 
 ## 全局约定注入（`conventions`）
 

@@ -85,6 +85,7 @@ def _runtime_from_args(
     args: argparse.Namespace,
     *,
     role: str,
+    adaptive_bucket: str,
     default_kind: str,
     model: str | None,
     timeout: float = 600.0,
@@ -94,8 +95,10 @@ def _runtime_from_args(
     if bin_override is None:
         bin_override = args.kiro_cli
     adaptive_mode = getattr(args, "adaptive_mode", "suggest")
-    recommended_runtime = getattr(args, "_adaptive_runtime_kind", None)
-    recommended_model = getattr(args, "_adaptive_model", None)
+    adaptive_runtime_by_bucket = getattr(args, "_adaptive_runtime_kind_by_bucket", {})
+    adaptive_model_by_bucket = getattr(args, "_adaptive_model_by_bucket", {})
+    recommended_runtime = adaptive_runtime_by_bucket.get(adaptive_bucket)
+    recommended_model = adaptive_model_by_bucket.get(adaptive_bucket)
     if adaptive_mode in {"apply-safe", "apply-aggressive"} and recommended_runtime:
         kind = recommended_runtime
     resolved_model = (
@@ -136,66 +139,131 @@ def _print_parallel_report(ws: Workspace, report: ParallelRunReport) -> None:
               f"{out.attempts:<3}  {files}")
 
 
-def _collect_runtime_metrics(report: ParallelRunReport) -> list[RuntimeMetricRecord]:
+def _collect_runtime_metrics(
+    report: ParallelRunReport, *, bucket: str = "implementor"
+) -> list[RuntimeMetricRecord]:
     records: list[RuntimeMetricRecord] = []
     for tid, out in sorted(report.outcomes.items()):
         tr = out.last_task_result
         records.append(
             RuntimeMetricRecord(
                 task_id=tid,
+                task_bucket=bucket,
                 runtime_kind=tr.runtime_kind or "unknown",
                 model=tr.model or "(default)",
                 passed=out.passed,
                 attempts=out.attempts,
                 files_changed=len(tr.files_changed),
+                duration_ms=out.duration_ms,
             )
         )
     return records
 
 
+def _collect_reviewer_metrics(report: ParallelRunReport) -> list[RuntimeMetricRecord]:
+    """从 per-task semantic review 层抽出 reviewer metrics。
+
+    passed / execution_ok = runtime 是否跑通；
+    verdict_pass = 审查结论（FAIL 不代表 runtime 失败）。
+    """
+    from kiro_conduit.types import VerifyLayer
+
+    records: list[RuntimeMetricRecord] = []
+    for tid, out in sorted(report.outcomes.items()):
+        for layer in out.last_verify_result.layers:
+            if layer.layer is not VerifyLayer.SEMANTIC or layer.skipped:
+                continue
+            # execution_ok 缺省时按"拿到了结论"算成功（兼容旧 LayerResult）
+            execution_ok = True if layer.execution_ok is None else layer.execution_ok
+            records.append(
+                RuntimeMetricRecord(
+                    task_id=f"review:{tid}",
+                    task_bucket="reviewer",
+                    runtime_kind=layer.runtime_kind or "unknown",
+                    model=layer.model or "(default)",
+                    # passed=execution_ok：自适应只看 runtime 可靠性
+                    passed=execution_ok,
+                    attempts=1,
+                    files_changed=0,
+                    execution_ok=execution_ok,
+                    verdict_pass=layer.passed,
+                )
+            )
+    return records
+
+
+def _bucket_candidates(bucket: str) -> tuple[str, ...]:
+    if bucket == "implementor":
+        return ("implementor", "conduit-run")
+    return (bucket,)
+
+
 def _print_runtime_metrics_report(records: list[RuntimeMetricRecord]) -> None:
-    rows = summarize_metrics(records)
-    if not rows:
-        return
-    print("\n✓ runtime/model metrics:")
-    for row in rows:
-        print(
-            "  "
-            f"{row['runtime_kind']} / {row['model']}: "
-            f"total={row['total']} success={row['success']} failed={row['failed']} "
-            f"success_rate={float(row['success_rate']):.0%} avg_files={row['avg_files_changed']}"
-        )
-    recommendation = recommend_strategy(records)
-    if recommendation.get("sample_size", 0):
-        print(
-            "\n✓ adaptive recommendation:"
-            f" runtime={recommendation.get('preferred_runtime_kind') or '(keep current)'}"
-            f" model={recommendation.get('preferred_model') or '(keep current)'}"
-            f" samples={recommendation['sample_size']}"
-        )
+    buckets = sorted({record.task_bucket for record in records})
+    for bucket in buckets:
+        rows = summarize_metrics(records, bucket=bucket)
+        if not rows:
+            continue
+        print(f"\n✓ runtime/model metrics [{bucket}]:")
+        for row in rows:
+            extra = ""
+            if "verdict_pass_rate" in row:
+                extra = f" verdict_pass_rate={float(row['verdict_pass_rate']):.0%}"
+            duration_s = round(float(row.get("avg_duration_ms") or 0) / 1000, 1)
+            print(
+                "  "
+                f"{row['runtime_kind']} / {row['model']}: "
+                f"total={row['total']} success={row['success']} failed={row['failed']} "
+                "success_rate="
+                f"{float(row['success_rate']):.0%} "
+                f"avg_files={row['avg_files_changed']} "
+                f"avg_duration={duration_s}s "
+                f"score={float(row['score']):.2f}"
+                f"{extra}"
+            )
+        recommendation = recommend_strategy(records, bucket=bucket)
+        if recommendation.get("sample_size", 0):
+            print(
+                f"\n✓ adaptive recommendation [{bucket}]:"
+                f" runtime={recommendation.get('preferred_runtime_kind') or '(keep current)'}"
+                f" model={recommendation.get('preferred_model') or '(keep current)'}"
+                f" samples={recommendation['sample_size']}"
+            )
 
 
 def _apply_adaptive_recommendation(
-    args: argparse.Namespace, records: list[RuntimeMetricRecord]
+    args: argparse.Namespace, records: list[RuntimeMetricRecord], *, bucket: str
 ) -> None:
-    recommendation = recommend_strategy(records)
-    args._adaptive_runtime_kind = None
-    args._adaptive_model = None
+    recommendation = {"sample_size": 0, "reason": "insufficient-history"}
+    for candidate in _bucket_candidates(bucket):
+        recommendation = recommend_strategy(records, bucket=candidate)
+        if recommendation.get("sample_size", 0) > 0:
+            break
+    if not hasattr(args, "_adaptive_runtime_kind_by_bucket"):
+        args._adaptive_runtime_kind_by_bucket = {}
+    if not hasattr(args, "_adaptive_model_by_bucket"):
+        args._adaptive_model_by_bucket = {}
     mode = getattr(args, "adaptive_mode", "suggest")
     if mode == "off" or recommendation.get("sample_size", 0) <= 0:
         return
     if mode == "apply-aggressive":
-        args._adaptive_runtime_kind = recommendation.get("preferred_runtime_kind")
-        args._adaptive_model = recommendation.get("preferred_model")
+        args._adaptive_runtime_kind_by_bucket[bucket] = recommendation.get(
+            "preferred_runtime_kind"
+        )
+        args._adaptive_model_by_bucket[bucket] = recommendation.get("preferred_model")
         return
     if (
         mode == "apply-safe"
         and recommendation.get("sample_size", 0) >= 8
         and float(recommendation.get("runtime_success_rate") or 0) >= 0.9
     ):
-        args._adaptive_runtime_kind = recommendation.get("preferred_runtime_kind")
+        args._adaptive_runtime_kind_by_bucket[bucket] = recommendation.get(
+            "preferred_runtime_kind"
+        )
         if float(recommendation.get("model_success_rate") or 0) >= 0.9:
-            args._adaptive_model = recommendation.get("preferred_model")
+            args._adaptive_model_by_bucket[bucket] = recommendation.get(
+                "preferred_model"
+            )
 
 def _warn_unowned_shared_files(ws: Workspace, report: ParallelRunReport) -> list[str]:
     """预警：被 ≥2 个任务创建、却不在任何 files_owned 的文件。
@@ -228,8 +296,11 @@ def _warn_unowned_shared_files(ws: Workspace, report: ParallelRunReport) -> list
 
 async def _review_integration(
     args: argparse.Namespace, base_repo: Path, base_branch: str, specs_dir: Path
-) -> None:
-    """merge 后对组装好的集成结果做一次 AI 初审，写 .kiro-conduit/review.md。"""
+) -> RuntimeMetricRecord | None:
+    """merge 后对组装好的集成结果做一次 AI 初审，写 .kiro-conduit/review.md。
+
+    返回 reviewer metric（execution_ok ≠ verdict）；失败开路径可能仍有 metric。
+    """
     from kiro_conduit.git_utils import run_git
     from kiro_conduit.semantic import KiroSemanticReviewer, review_integration
 
@@ -238,13 +309,15 @@ async def _review_integration(
         ["rev-parse", "--verify", "--quiet", "refs/heads/kiro-conduit/integration"],
     )
     ref = "kiro-conduit/integration" if code == 0 else base_branch
+    review_runtime = _runtime_from_args(
+        args,
+        role="reviewer",
+        adaptive_bucket="reviewer",
+        default_kind="kiro-cli-acp",
+        model=args.review_model,
+    )
     reviewer = KiroSemanticReviewer(
-        runtime=_runtime_from_args(
-            args,
-            role="reviewer",
-            default_kind="kiro-cli-acp",
-            model=args.review_model,
-        ),
+        runtime=review_runtime,
         max_diff_chars=120000,
         model=args.review_model,
     )
@@ -266,6 +339,18 @@ async def _review_integration(
     logger.info(
         "[review] integration AI review verdict=%s report=%s",
         "PASS" if result.passed else "CONCERNS", report_path,
+    )
+    execution_ok = True if result.execution_ok is None else result.execution_ok
+    return RuntimeMetricRecord(
+        task_id="review:integration",
+        task_bucket="reviewer",
+        runtime_kind=result.runtime_kind or review_runtime.kind,
+        model=result.model or review_runtime.model or "(default)",
+        passed=execution_ok,
+        attempts=1,
+        files_changed=0,
+        execution_ok=execution_ok,
+        verdict_pass=result.passed,
     )
 
 
@@ -394,16 +479,20 @@ async def _run(args: argparse.Namespace) -> int:
     print(f"  log file: {log_path}")
     dest = "merge into base branch" if args.merge else "leave branches for review (no merge)"
     print(f"  on success: {dest}")
-    _apply_adaptive_recommendation(args, load_metrics(metrics_path(base_repo)))
+    prior_metrics = load_metrics(metrics_path(base_repo))
+    _apply_adaptive_recommendation(args, prior_metrics, bucket="implementor")
+    _apply_adaptive_recommendation(args, prior_metrics, bucket="reviewer")
     impl_runtime = _runtime_from_args(
         args,
         role="implementor",
+        adaptive_bucket="implementor",
         default_kind=getattr(args, "runtime_kind", "kiro-cli-acp"),
         model=None,
     )
     review_runtime = _runtime_from_args(
         args,
         role="reviewer",
+        adaptive_bucket="reviewer",
         default_kind="kiro-cli-acp",
         model=args.review_model,
     )
@@ -425,6 +514,7 @@ async def _run(args: argparse.Namespace) -> int:
             runtime=_runtime_from_args(
                 args,
                 role="reviewer",
+                adaptive_bucket="reviewer",
                 default_kind="kiro-cli-acp",
                 model=args.review_model,
             ),
@@ -439,6 +529,7 @@ async def _run(args: argparse.Namespace) -> int:
         implementor_runtime=_runtime_from_args(
             args,
             role="implementor",
+            adaptive_bucket="implementor",
             default_kind=getattr(args, "runtime_kind", "kiro-cli-acp"),
             model=None,
             timeout=600.0,
@@ -454,9 +545,10 @@ async def _run(args: argparse.Namespace) -> int:
 
     report = await _run_parallel(orch, ws, bus, base_branch)
     _print_parallel_report(ws, report)
-    current_metrics = _collect_runtime_metrics(report)
+    current_metrics = _collect_runtime_metrics(report, bucket="implementor")
+    current_metrics.extend(_collect_reviewer_metrics(report))
     all_metrics_path = metrics_path(base_repo)
-    all_metrics = load_metrics(all_metrics_path) + current_metrics
+    all_metrics = prior_metrics + current_metrics
     save_metrics(all_metrics_path, all_metrics)
     _print_runtime_metrics_report(all_metrics)
 
@@ -483,7 +575,13 @@ async def _run(args: argparse.Namespace) -> int:
     )
     _print_merge_report(merge_report)
     if args.review:
-        await _review_integration(args, base_repo, base_branch, dag_path.parent / "specs")
+        review_metric = await _review_integration(
+            args, base_repo, base_branch, dag_path.parent / "specs"
+        )
+        if review_metric is not None:
+            all_metrics = [*load_metrics(all_metrics_path), review_metric]
+            save_metrics(all_metrics_path, all_metrics)
+            _print_runtime_metrics_report([review_metric])
     check_ok = await _integration_check(ws, base_repo, base_branch)
     if not report.all_passed:
         print(
@@ -573,14 +671,19 @@ async def _plan(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"✓ planning from spec: {spec_path}")
+    all_metrics_path = metrics_path(out_dir)
+    prior_metrics = load_metrics(all_metrics_path)
+    _apply_adaptive_recommendation(args, prior_metrics, bucket="planner")
+    planner_runtime = _runtime_from_args(
+        args,
+        role="planner",
+        adaptive_bucket="planner",
+        default_kind=getattr(args, "planner_runtime_kind", "kiro-cli-acp"),
+        model=args.model,
+        timeout=args.timeout,
+    )
     planner = KiroPlanner(
-        runtime=_runtime_from_args(
-            args,
-            role="planner",
-            default_kind=getattr(args, "planner_runtime_kind", "kiro-cli-acp"),
-            model=args.model,
-            timeout=args.timeout,
-        ),
+        runtime=planner_runtime,
         model=args.model,
         prompt_timeout=args.timeout,
     )
@@ -596,15 +699,61 @@ async def _plan(args: argparse.Namespace) -> int:
             tasks = await planner.generate_plan(spec_text, cwd=out_dir)
             dag_path = write_plan(tasks, out_dir)
     except PlanError as exc:
+        save_metrics(
+            all_metrics_path,
+            [
+                *prior_metrics,
+                RuntimeMetricRecord(
+                    task_id=f"plan:{spec_path.name}",
+                    task_bucket="planner",
+                    runtime_kind=planner_runtime.kind,
+                    model=planner_runtime.model or "(default)",
+                    passed=False,
+                    attempts=1,
+                    files_changed=0,
+                )
+            ],
+        )
         print(f"\n✗ planning failed: {exc}")
         return 1
     except (TimeoutError, ConnectionError) as exc:
+        save_metrics(
+            all_metrics_path,
+            [
+                *prior_metrics,
+                RuntimeMetricRecord(
+                    task_id=f"plan:{spec_path.name}",
+                    task_bucket="planner",
+                    runtime_kind=planner_runtime.kind,
+                    model=planner_runtime.model or "(default)",
+                    passed=False,
+                    attempts=1,
+                    files_changed=0,
+                )
+            ],
+        )
         print(
             f"\n✗ planning 中断（{type(exc).__name__}）：Kiro 拆分超过了 "
             f"{args.timeout:.0f}s。大 spec 拆分较慢——用更大的 --timeout 重试"
             f"（如 --timeout 1800），或确认 kiro-cli 能正常跑。"
         )
         return 1
+
+    save_metrics(
+        all_metrics_path,
+        [
+            *prior_metrics,
+            RuntimeMetricRecord(
+                task_id=f"plan:{spec_path.name}",
+                task_bucket="planner",
+                runtime_kind=planner_runtime.kind,
+                model=planner_runtime.model or "(default)",
+                passed=True,
+                attempts=1,
+                files_changed=len(tasks),
+            )
+        ],
+    )
 
     print(f"\n✓ generated {dag_path}  ({len(tasks)} tasks)")
     for t in tasks:
@@ -777,6 +926,12 @@ def main(argv: list[str] | None = None) -> int:
         "--out", required=True, help="output workspace dir (dag.yaml + specs/)"
     )
     plan_p.add_argument("--kiro-cli", default="kiro-cli", help="default planner binary")
+    plan_p.add_argument(
+        "--adaptive-mode",
+        choices=["off", "suggest", "apply-safe", "apply-aggressive"],
+        default="suggest",
+        help="adaptive runtime/model strategy for planner based on historical metrics",
+    )
     plan_p.add_argument(
         "--kiro-simple-tier",
         choices=("fast", "balanced", "strong", "max"),

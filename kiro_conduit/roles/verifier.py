@@ -226,6 +226,9 @@ class Verifier:
             passed=review.passed,
             output=review.feedback,
             skipped=False,
+            execution_ok=review.execution_ok,
+            runtime_kind=review.runtime_kind,
+            model=review.model,
         )
 
     def _run_contract_layer(self, cwd: Path) -> LayerResult:
