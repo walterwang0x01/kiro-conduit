@@ -234,6 +234,54 @@ class TestMain:
         code = main(["report", "--base-repo", str(ws)])
         assert code == 0
 
+    def test_run_apply_safe_uses_recommended_runtime(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws = _write_ws(tmp_path)
+        metrics_dir = ws / ".kiro-conduit"
+        metrics_dir.mkdir(exist_ok=True)
+        (metrics_dir / "runtime-metrics.json").write_text(
+            dedent(
+                """
+                {
+                  "version": 1,
+                  "records": [
+                    {"task_id": "t1", "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                     "passed": true, "attempts": 1, "files_changed": 1},
+                    {"task_id": "t2", "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                     "passed": true, "attempts": 1, "files_changed": 1},
+                    {"task_id": "t3", "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                     "passed": true, "attempts": 1, "files_changed": 1},
+                    {"task_id": "t4", "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                     "passed": true, "attempts": 1, "files_changed": 1},
+                    {"task_id": "t5", "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                     "passed": true, "attempts": 1, "files_changed": 1},
+                    {"task_id": "t6", "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                     "passed": true, "attempts": 1, "files_changed": 1},
+                    {"task_id": "t7", "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                     "passed": true, "attempts": 1, "files_changed": 1},
+                    {"task_id": "t8", "runtime_kind": "cursor-agent-cli", "model": "Auto",
+                     "passed": true, "attempts": 1, "files_changed": 1}
+                  ]
+                }
+                """
+            ).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        captured: dict[str, object] = {}
+
+        async def fake_run(self, base_branch: str = "main") -> ParallelRunReport:  # type: ignore[no-untyped-def]
+            captured["runtime_kind"] = self._runtime.kind
+            return ParallelRunReport(
+                outcomes={"t1": _passing("t1")}, skipped=(), handles={}
+            )
+
+        monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
+        code = main(["run", "--workspace", str(ws), "--adaptive-mode", "apply-safe"])
+        assert code == 0
+        assert captured["runtime_kind"] == "cursor-agent-cli"
+
     def test_run_full_invokes_merge(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

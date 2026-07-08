@@ -93,10 +93,20 @@ def _runtime_from_args(
     bin_override = getattr(args, f"{role}_bin", None)
     if bin_override is None:
         bin_override = args.kiro_cli
+    adaptive_mode = getattr(args, "adaptive_mode", "suggest")
+    recommended_runtime = getattr(args, "_adaptive_runtime_kind", None)
+    recommended_model = getattr(args, "_adaptive_model", None)
+    if adaptive_mode in {"apply-safe", "apply-aggressive"} and recommended_runtime:
+        kind = recommended_runtime
+    resolved_model = (
+        recommended_model if adaptive_mode in {"apply-safe", "apply-aggressive"} else model
+    )
+    if resolved_model is None:
+        resolved_model = model
     return RuntimeConfig.from_cli(
         kiro_cli=bin_override,
         runtime_kind="cursor-agent-cli" if kind == "cursor-agent-cli" else "kiro-cli-acp",
-        model=model,
+        model=resolved_model,
         timeout=timeout,
         simple_tier=getattr(args, "kiro_simple_tier", "balanced"),
         medium_tier=getattr(args, "kiro_medium_tier", "strong"),
@@ -163,6 +173,29 @@ def _print_runtime_metrics_report(records: list[RuntimeMetricRecord]) -> None:
             f" model={recommendation.get('preferred_model') or '(keep current)'}"
             f" samples={recommendation['sample_size']}"
         )
+
+
+def _apply_adaptive_recommendation(
+    args: argparse.Namespace, records: list[RuntimeMetricRecord]
+) -> None:
+    recommendation = recommend_strategy(records)
+    args._adaptive_runtime_kind = None
+    args._adaptive_model = None
+    mode = getattr(args, "adaptive_mode", "suggest")
+    if mode == "off" or recommendation.get("sample_size", 0) <= 0:
+        return
+    if mode == "apply-aggressive":
+        args._adaptive_runtime_kind = recommendation.get("preferred_runtime_kind")
+        args._adaptive_model = recommendation.get("preferred_model")
+        return
+    if (
+        mode == "apply-safe"
+        and recommendation.get("sample_size", 0) >= 8
+        and float(recommendation.get("runtime_success_rate") or 0) >= 0.9
+    ):
+        args._adaptive_runtime_kind = recommendation.get("preferred_runtime_kind")
+        if float(recommendation.get("model_success_rate") or 0) >= 0.9:
+            args._adaptive_model = recommendation.get("preferred_model")
 
 def _warn_unowned_shared_files(ws: Workspace, report: ParallelRunReport) -> list[str]:
     """预警：被 ≥2 个任务创建、却不在任何 files_owned 的文件。
@@ -361,6 +394,7 @@ async def _run(args: argparse.Namespace) -> int:
     print(f"  log file: {log_path}")
     dest = "merge into base branch" if args.merge else "leave branches for review (no merge)"
     print(f"  on success: {dest}")
+    _apply_adaptive_recommendation(args, load_metrics(metrics_path(base_repo)))
     impl_runtime = _runtime_from_args(
         args,
         role="implementor",
@@ -641,6 +675,12 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--max-concurrency", type=int, default=4)
     run_p.add_argument("--max-attempts", type=int, default=3)
     run_p.add_argument(
+        "--adaptive-mode",
+        choices=("off", "suggest", "apply-safe", "apply-aggressive"),
+        default="suggest",
+        help="how aggressively to apply historical runtime/model recommendations",
+    )
+    run_p.add_argument(
         "--kiro-cli",
         default="kiro-cli",
         help="default agent binary path (used when a role-specific bin is not set)",
@@ -792,6 +832,12 @@ def main(argv: list[str] | None = None) -> int:
         "--base-repo",
         required=True,
         help="git repo whose .kiro-conduit/runtime-metrics.json should be reported",
+    )
+    report_p.add_argument(
+        "--adaptive-mode",
+        choices=("off", "suggest", "apply-safe", "apply-aggressive"),
+        default="suggest",
+        help="report-only flag reserved for consistency with run mode",
     )
 
     args = parser.parse_args(argv)

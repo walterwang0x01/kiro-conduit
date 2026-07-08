@@ -91,5 +91,9 @@ def recommend_strategy(records: list[RuntimeMetricRecord]) -> dict[str, object]:
         "preferred_model": (
             best_kiro["model"] if best_kiro and float(best_kiro["success_rate"]) >= 0.8 else None
         ),
+        "runtime_success_rate": float(best_runtime["success_rate"]),
+        "model_success_rate": (
+            float(best_kiro["success_rate"]) if best_kiro else None
+        ),
         "reason": "history-success-rate",
     }
