@@ -572,6 +572,18 @@ async def _plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _report(args: argparse.Namespace) -> int:
+    base_repo = Path(args.base_repo).expanduser().resolve()
+    path = metrics_path(base_repo)
+    records = load_metrics(path)
+    if not records:
+        print(f"✗ no runtime metrics found: {path}")
+        return 1
+    print(f"✓ runtime metrics: {path}")
+    _print_runtime_metrics_report(records)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="kiro-conduit",
@@ -766,10 +778,20 @@ def main(argv: list[str] | None = None) -> int:
              "raise it for big specs)",
     )
 
+    report_p = sub.add_parser("report", help="show aggregated runtime/model metrics")
+    report_p.add_argument(
+        "--base-repo",
+        required=True,
+        help="git repo whose .kiro-conduit/runtime-metrics.json should be reported",
+    )
+
     args = parser.parse_args(argv)
     if args.command == "plan":
         logging.basicConfig(level=logging.INFO, format=_LOG_FMT)
         return _run_with_signal_handling(_plan(args))
+    if args.command == "report":
+        logging.basicConfig(level=logging.INFO, format=_LOG_FMT)
+        return _report(args)
     # run：日志（控制台 + 文件）由 _run 内部配置（需要 base_repo 定位日志文件）
     return _run_with_signal_handling(_run(args))
 

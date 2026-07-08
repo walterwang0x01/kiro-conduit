@@ -206,6 +206,34 @@ class TestMain:
         code = main(["run", "--workspace", str(ws)])
         assert code == 0
 
+    def test_report_reads_metrics_file(self, tmp_path: Path) -> None:
+        ws = _write_ws(tmp_path)
+        metrics_dir = ws / ".kiro-conduit"
+        metrics_dir.mkdir(exist_ok=True)
+        (metrics_dir / "runtime-metrics.json").write_text(
+            dedent(
+                """
+                {
+                  "version": 1,
+                  "records": [
+                    {
+                      "task_id": "t1",
+                      "runtime_kind": "cursor-agent-cli",
+                      "model": "Auto",
+                      "passed": true,
+                      "attempts": 1,
+                      "files_changed": 2
+                    }
+                  ]
+                }
+                """
+            ).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        code = main(["report", "--base-repo", str(ws)])
+        assert code == 0
+
     def test_run_full_invokes_merge(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
