@@ -527,7 +527,7 @@ class KiroPlanner:
         return tasks, raw_plan
 
     async def _ask(self, prompt: str, cwd: Path) -> str:
-        runtime = resolve_runtime_for_prompt(self._runtime, prompt)
+        runtime = resolve_runtime_for_prompt(self._runtime, prompt, role="planner")
         if runtime.kind == "cursor-agent-cli":
             from kiro_conduit.runtime.cursor_cli import cursor_prompt_text
 

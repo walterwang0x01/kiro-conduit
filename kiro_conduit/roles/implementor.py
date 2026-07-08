@@ -150,7 +150,7 @@ class Implementor:
     async def _run_cursor(self, task: Task) -> list[str]:
         transcript_parts: list[str] = []
         full_prompt = self._render_prompt(task)
-        runtime = resolve_runtime_for_prompt(self._runtime, full_prompt)
+        runtime = resolve_runtime_for_prompt(self._runtime, full_prompt, role="implementor")
         async for chunk in cursor_prompt_stream(
             runtime,
             cwd=task.cwd,
@@ -162,7 +162,7 @@ class Implementor:
     async def _run_kiro_acp(self, task: Task) -> list[str]:
         """Kiro ACP 路径（原实现）。"""
         full_prompt = self._render_prompt(task)
-        runtime = resolve_runtime_for_prompt(self._runtime, full_prompt)
+        runtime = resolve_runtime_for_prompt(self._runtime, full_prompt, role="implementor")
         config = AcpClientConfig(
             kiro_cli_path=runtime.bin,
             cwd=task.cwd,

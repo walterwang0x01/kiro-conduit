@@ -179,7 +179,7 @@ class KiroSemanticReviewer:
 
     async def _run_kiro_review(self, cwd: Path, prompt: str) -> str:
         """起一个独立 ACP session，发 review prompt，收齐所有 message chunk 拼成响应。"""
-        runtime = resolve_runtime_for_prompt(self._runtime, prompt)
+        runtime = resolve_runtime_for_prompt(self._runtime, prompt, role="reviewer")
         if runtime.kind == "cursor-agent-cli":
             return await cursor_prompt_text(runtime, cwd=cwd, prompt=prompt)
 

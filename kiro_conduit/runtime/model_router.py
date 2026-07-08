@@ -85,30 +85,57 @@ def list_kiro_models(bin_path: str) -> tuple[list[str], str | None]:
     return models, default_value
 
 
-def resolve_runtime_for_prompt(runtime: RuntimeConfig, prompt: str) -> RuntimeConfig:
+def resolve_runtime_for_prompt(
+    runtime: RuntimeConfig, prompt: str, *, role: str = "generic"
+) -> RuntimeConfig:
+    score = _complexity_score(prompt)
     if runtime.kind == "cursor-agent-cli":
-        return replace(runtime, model=runtime.model or "Auto")
+        chosen = replace(runtime, model=runtime.model or "Auto")
+        logger.info(
+            "[runtime] role=%s kind=%s model=%s score=%s reason=cursor-fixed-auto",
+            role,
+            chosen.kind,
+            chosen.model,
+            score,
+        )
+        return chosen
     if runtime.model:
+        logger.info(
+            "[runtime] role=%s kind=%s model=%s score=%s reason=kiro-fixed-profile",
+            role,
+            runtime.kind,
+            runtime.model,
+            score,
+        )
         return runtime
 
     models, default_model = list_kiro_models(runtime.bin)
     if not models:
+        logger.info(
+            "[runtime] role=%s kind=%s model=%s score=%s reason=kiro-smart-no-list",
+            role,
+            runtime.kind,
+            runtime.model,
+            score,
+        )
         return runtime
 
-    score = _complexity_score(prompt)
     if score >= 7:
+        tier = "hard"
         chosen = (
             _pick_first(models, ["claude-opus-4.8", "claude-opus-4.7", "claude-opus-4.6"])
             or _pick_first(models, ["claude-sonnet-5", "claude-sonnet-4.6"])
             or default_model
         )
     elif score >= 4:
+        tier = "medium"
         chosen = (
             _pick_first(models, ["claude-sonnet-5", "claude-sonnet-4.6", "claude-sonnet-4.5"])
             or _pick_first(models, ["claude-opus-4.8", "claude-opus-4.7"])
             or default_model
         )
     else:
+        tier = "simple"
         chosen = (
             _pick_first(
                 models,
@@ -117,4 +144,14 @@ def resolve_runtime_for_prompt(runtime: RuntimeConfig, prompt: str) -> RuntimeCo
             or _pick_first(models, ["claude-sonnet-5", "minimax-m2.5", "deepseek-3.2"])
             or default_model
         )
-    return replace(runtime, model=chosen or runtime.model)
+    resolved = replace(runtime, model=chosen or runtime.model)
+    logger.info(
+        "[runtime] role=%s kind=%s model=%s score=%s tier=%s available_models=%s reason=kiro-smart",
+        role,
+        resolved.kind,
+        resolved.model,
+        score,
+        tier,
+        len(models),
+    )
+    return resolved
