@@ -4,7 +4,7 @@
 >
 > 作用：回答"这个项目到底要解决什么、不解决什么、做到什么样子算成功"
 >
-> **LWA 体系**：Conduit 是 **Lark Local Agent Workbench** 的 DAG 编排层；飞书入口由 [Bridge（lark-kiro-bridge）](https://github.com/walterwang0x01/lark-kiro-bridge) 提供。对外介绍见 [`PITCH.md`](./PITCH.md)。
+> **LWA 体系**：Conduit 是 **Lark Local Agent Workbench** 的 DAG 编排层；飞书入口由 [Bridge（lark-kiro-bridge）](https://github.com/walterwang0x01/lwa-bridge) 提供。对外介绍见 [`PITCH.md`](./PITCH.md)。
 
 ---
 
@@ -137,7 +137,7 @@ MVP 必须能完成**一次真实演示**：
 **决策**：MVP 用 **Python 3.11+**
 
 **原因**：
-- 同作者的 [Bridge（lark-kiro-bridge）](https://github.com/walterwang0x01/lark-kiro-bridge) 已实现 ACP 客户端（TypeScript），是 LWA 飞书入口；Python 重写 Conduit 侧 ACP 成本可控
+- 同作者的 [Bridge（lark-kiro-bridge）](https://github.com/walterwang0x01/lwa-bridge) 已实现 ACP 客户端（TypeScript），是 LWA 飞书入口；Python 重写 Conduit 侧 ACP 成本可控
 - ACP 的 JSON-RPC + 子进程管理在 Python 里成熟（asyncio + subprocess）
 - 用户群（Python 后端工程师）多
 - 备选 Rust 留给后续性能瓶颈出现时

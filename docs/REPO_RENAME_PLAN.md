@@ -1,12 +1,12 @@
-# 阶段 B：仓库与包名重命名规划（未执行）
+# 阶段 B：仓库与包名重命名规划
 
-> **状态：规划 only，尚未执行任何改名。**
+> **状态：B3 已执行（2026-07-09）** — GitHub 仓库已改为 `lwa-conduit` / `lwa-bridge`；PyPI 包名 `kiro-conduit` 与 CLI **未改**。
 
 Conduit 侧要点与 Bridge 一致：方案 A 已用 **LWA / Conduit** 对外话术，技术名 `kiro-conduit` 保持不变。
 
-**完整检查清单、候选命名（B1/B2/B3）、迁移步骤** 见 Bridge 仓库主文档：
+**完整检查清单、候选命名（B1/B2）、剩余迁移步骤** 见 Bridge 仓库主文档：
 
-👉 [lark-kiro-bridge/docs/REPO_RENAME_PLAN.md](https://github.com/walterwang0x01/lark-kiro-bridge/blob/main/docs/REPO_RENAME_PLAN.md)
+👉 [lwa-bridge/docs/REPO_RENAME_PLAN.md](https://github.com/walterwang0x01/lwa-bridge/blob/main/docs/REPO_RENAME_PLAN.md)
 
 ## Conduit 特有注意点
 
@@ -19,8 +19,7 @@ Conduit 侧要点与 Bridge 一致：方案 A 已用 **LWA / Conduit** 对外话
 
 ## 决策门（与 Bridge 同步）
 
-1. 选定 B1 / B2 / B3
-2. 是否接受 PyPI 包名 breaking change
-3. deprecation 窗口（建议 ≥ 90 天）
+1. 是否进入 **B1** 全量迁移（PyPI 包名 + 可选 CLI alias）
+2. deprecation 窗口（建议 ≥ 90 天）
 
-确认后在两仓库各开 tracking Issue，按主文档清单执行。
+跟踪 Issue：见本仓库 Labels `phase-b`。

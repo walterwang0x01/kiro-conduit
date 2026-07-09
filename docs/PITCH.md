@@ -44,7 +44,7 @@ kiro-conduit run \
 | [SYSTEM_OVERVIEW.md](./SYSTEM_OVERVIEW.md) | Conduit 在 LWA 中的角色 |
 | [runtime-routing.md](./runtime-routing.md) | 生产调参与 adaptive |
 | [USAGE.md](./USAGE.md) | CLI 完整用法 |
-| [LWA 全体系 pitch](https://github.com/walterwang0x01/lark-kiro-bridge/blob/main/docs/PITCH.md) | Bridge 仓库的对外介绍 |
+| [LWA 全体系 pitch](https://github.com/walterwang0x01/lwa-bridge/blob/main/docs/PITCH.md) | Bridge 仓库的对外介绍 |
 
 ## 对外一句话（可直接复制）
 

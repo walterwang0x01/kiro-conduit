@@ -48,9 +48,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/walterwang0x01/kiro-conduit"
-Repository = "https://github.com/walterwang0x01/kiro-conduit"
-Issues = "https://github.com/walterwang0x01/kiro-conduit/issues"
+Homepage = "https://github.com/walterwang0x01/lwa-conduit"
+Repository = "https://github.com/walterwang0x01/lwa-conduit"
+Issues = "https://github.com/walterwang0x01/lwa-conduit/issues"
 
 [project.scripts]
 kiro-conduit = "kiro_conduit.cli:main"

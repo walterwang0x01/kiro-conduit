@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
-  <a href="https://github.com/walterwang0x01/kiro-conduit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/walterwang0x01/kiro-conduit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/walterwang0x01/lwa-conduit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/walterwang0x01/lwa-conduit/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="status: M2 in progress" src="https://img.shields.io/badge/status-M2%20in%20progress-green">
   <img alt="tests" src="https://img.shields.io/badge/tests-304%20passed-brightgreen">
   <img alt="ruff" src="https://img.shields.io/badge/ruff-clean-brightgreen">
@@ -71,7 +71,7 @@ spec.md
 
 ```bash
 # 1. 克隆
-git clone https://github.com/walterwang0x01/kiro-conduit.git
+git clone https://github.com/walterwang0x01/lwa-conduit.git
 cd kiro-conduit
 
 # 2. 装依赖（venv）
@@ -400,7 +400,7 @@ kiro-conduit 不发明新模式，它把 2026 年行业共识的 **6 大并行�
 | 想知道 | 看哪份 |
 |--------|--------|
 | LWA 对外介绍（30 秒 pitch） | [docs/PITCH.md](docs/PITCH.md) |
-| 阶段 B 仓库/包名重命名规划（未执行） | [docs/REPO_RENAME_PLAN.md](docs/REPO_RENAME_PLAN.md) |
+| 阶段 B 仓库/包名重命名规划（B3 已完成，包名未改） | [docs/REPO_RENAME_PLAN.md](docs/REPO_RENAME_PLAN.md) |
 | LWA 体系总览、Bridge 与 Conduit 分工 | [docs/SYSTEM_OVERVIEW.md](docs/SYSTEM_OVERVIEW.md) |
 | 生产级多 CLI / 角色路由与 adaptive | [docs/runtime-routing.md](docs/runtime-routing.md) |
 | 这个项目要解决什么问题、不解决什么问题 | [docs/PRD.md](docs/PRD.md) |
@@ -423,6 +423,6 @@ MIT，见 [LICENSE](LICENSE)。
 
 ## 相关项目
 
-- [Bridge（lark-kiro-bridge）](https://github.com/walterwang0x01/lark-kiro-bridge) —— LWA 飞书入口；飞书里可用 `/conduit` 触发本编排器
+- [Bridge（lark-kiro-bridge）](https://github.com/walterwang0x01/lwa-bridge) —— LWA 飞书入口；飞书里可用 `/conduit` 触发本编排器
 - [kirodotdev/Kiro](https://github.com/kirodotdev/Kiro) —— 支持的 Agent CLI 之一
 - [Agent Client Protocol](https://agentclientprotocol.com/) —— Kiro CLI 暴露的程序化接口
