@@ -106,9 +106,11 @@ def _runtime_from_args(
     )
     if resolved_model is None:
         resolved_model = model
+    allowed_kinds = {"kiro-cli-acp", "cursor-agent-cli", "gemini-cli"}
+    runtime_kind = kind if kind in allowed_kinds else "kiro-cli-acp"
     return RuntimeConfig.from_cli(
         kiro_cli=bin_override,
-        runtime_kind="cursor-agent-cli" if kind == "cursor-agent-cli" else "kiro-cli-acp",
+        runtime_kind=runtime_kind,
         model=resolved_model,
         timeout=timeout,
         simple_tier=getattr(args, "kiro_simple_tier", "balanced"),
@@ -866,13 +868,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     run_p.add_argument(
         "--runtime-kind",
-        choices=("kiro-cli-acp", "cursor-agent-cli"),
+        choices=("kiro-cli-acp", "cursor-agent-cli", "gemini-cli"),
         default="kiro-cli-acp",
         help="default implementor runtime if no role-specific override is set",
     )
     run_p.add_argument(
         "--implementor-runtime-kind",
-        choices=("kiro-cli-acp", "cursor-agent-cli"),
+        choices=("kiro-cli-acp", "cursor-agent-cli", "gemini-cli"),
         default=None,
         help="runtime for task execution workers (defaults to --runtime-kind)",
     )
@@ -883,7 +885,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     run_p.add_argument(
         "--reviewer-runtime-kind",
-        choices=("kiro-cli-acp", "cursor-agent-cli"),
+        choices=("kiro-cli-acp", "cursor-agent-cli", "gemini-cli"),
         default="kiro-cli-acp",
         help="runtime for semantic reviewer (default: kiro-cli-acp)",
     )
@@ -894,7 +896,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     run_p.add_argument(
         "--planner-runtime-kind",
-        choices=("kiro-cli-acp", "cursor-agent-cli"),
+        choices=("kiro-cli-acp", "cursor-agent-cli", "gemini-cli"),
         default="kiro-cli-acp",
         help="reserved for future plan reuse; current run path does not invoke planner",
     )
@@ -964,7 +966,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     plan_p.add_argument(
         "--planner-runtime-kind",
-        choices=("kiro-cli-acp", "cursor-agent-cli"),
+        choices=("kiro-cli-acp", "cursor-agent-cli", "gemini-cli"),
         default="kiro-cli-acp",
         help="runtime for planning (default: kiro-cli-acp)",
     )

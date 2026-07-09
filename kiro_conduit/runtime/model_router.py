@@ -124,6 +124,16 @@ def resolve_runtime_for_prompt(
             score,
         )
         return chosen
+    if runtime.kind == "gemini-cli":
+        chosen = replace(runtime, model=runtime.model or "auto")
+        logger.info(
+            "[runtime] role=%s kind=%s model=%s score=%s reason=gemini-fixed-model",
+            role,
+            chosen.kind,
+            chosen.model,
+            score,
+        )
+        return chosen
     if runtime.model:
         logger.info(
             "[runtime] role=%s kind=%s model=%s score=%s reason=kiro-fixed-profile",

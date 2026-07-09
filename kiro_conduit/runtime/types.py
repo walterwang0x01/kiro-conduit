@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-RuntimeKind = Literal["kiro-cli-acp", "cursor-agent-cli"]
+RuntimeKind = Literal["kiro-cli-acp", "cursor-agent-cli", "gemini-cli"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +46,20 @@ class RuntimeConfig:
                 kind="cursor-agent-cli",
                 bin=agent_bin,
                 model=model,
+                force=force,
+                prompt_timeout=timeout,
+                simple_tier=simple_tier,
+                medium_tier=medium_tier,
+                hard_tier=hard_tier,
+                medium_threshold=medium_threshold,
+                hard_threshold=hard_threshold,
+            )
+        if runtime_kind == "gemini-cli":
+            gemini_bin = kiro_cli if kiro_cli not in {"kiro-cli", "agent"} else "gemini"
+            return cls(
+                kind="gemini-cli",
+                bin=gemini_bin,
+                model=model or "auto",
                 force=force,
                 prompt_timeout=timeout,
                 simple_tier=simple_tier,

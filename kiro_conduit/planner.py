@@ -532,6 +532,10 @@ class KiroPlanner:
             from kiro_conduit.runtime.cursor_cli import cursor_prompt_text
 
             return await cursor_prompt_text(runtime, cwd=cwd, prompt=prompt)
+        if runtime.kind == "gemini-cli":
+            from kiro_conduit.runtime.gemini_cli import gemini_prompt_text
+
+            return await gemini_prompt_text(runtime, cwd=cwd, prompt=prompt)
 
         from kiro_conduit.acp import AcpClient, AcpClientConfig, AgentMessageChunk, TurnEnd
 

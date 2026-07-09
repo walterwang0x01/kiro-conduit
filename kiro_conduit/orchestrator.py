@@ -122,7 +122,9 @@ class ParallelOrchestrator:
         self._runtime = implementor_runtime or RuntimeConfig.from_cli(
             kiro_cli=kiro_cli_path,
             runtime_kind=(
-                "cursor-agent-cli" if runtime_kind == "cursor-agent-cli" else "kiro-cli-acp"
+                runtime_kind
+                if runtime_kind in {"cursor-agent-cli", "gemini-cli", "kiro-cli-acp"}
+                else "kiro-cli-acp"
             ),
             timeout=prompt_timeout,
         )

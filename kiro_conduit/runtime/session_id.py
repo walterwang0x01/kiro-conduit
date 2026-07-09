@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from kiro_conduit.runtime.types import RuntimeKind
 
-_RUNTIME_PREFIXES = frozenset({"kiro-cli-acp", "cursor-agent-cli"})
+_RUNTIME_PREFIXES = frozenset({"kiro-cli-acp", "cursor-agent-cli", "gemini-cli"})
 
 
 def encode_session_id(kind: RuntimeKind, native_id: str) -> str:

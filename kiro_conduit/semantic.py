@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Protocol
 
 from kiro_conduit.runtime.cursor_cli import cursor_prompt_text
+from kiro_conduit.runtime.gemini_cli import gemini_prompt_text
 from kiro_conduit.runtime.model_router import resolve_runtime_for_prompt
 from kiro_conduit.runtime.types import RuntimeConfig
 
@@ -201,6 +202,8 @@ class KiroSemanticReviewer:
         """起一个独立 ACP session，发 review prompt，收齐所有 message chunk 拼成响应。"""
         if runtime.kind == "cursor-agent-cli":
             return await cursor_prompt_text(runtime, cwd=cwd, prompt=prompt)
+        if runtime.kind == "gemini-cli":
+            return await gemini_prompt_text(runtime, cwd=cwd, prompt=prompt)
 
         # 局部 import 避免顶部循环依赖
         from kiro_conduit.acp import (

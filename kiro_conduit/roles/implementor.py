@@ -27,6 +27,7 @@ from kiro_conduit.acp import (
 )
 from kiro_conduit.git_utils import collect_diff, list_changed_files
 from kiro_conduit.runtime.cursor_cli import cursor_prompt_stream
+from kiro_conduit.runtime.gemini_cli import gemini_prompt_stream
 from kiro_conduit.runtime.model_router import resolve_runtime_for_prompt
 from kiro_conduit.runtime.types import RuntimeConfig
 from kiro_conduit.types import Task, TaskResult
@@ -169,7 +170,21 @@ class Implementor:
         """跑一次完整 agent 交互，返回 transcript 片段。"""
         if self._runtime.kind == "cursor-agent-cli":
             return await self._run_cursor(task)
+        if self._runtime.kind == "gemini-cli":
+            return await self._run_gemini(task)
         return await self._run_kiro_acp(task)
+
+    async def _run_gemini(self, task: Task) -> tuple[list[str], RuntimeConfig]:
+        transcript_parts: list[str] = []
+        full_prompt = self._render_prompt(task)
+        runtime = resolve_runtime_for_prompt(self._runtime, full_prompt, role="implementor")
+        async for chunk in gemini_prompt_stream(
+            runtime,
+            cwd=task.cwd,
+            prompt=full_prompt,
+        ):
+            transcript_parts.append(chunk)
+        return transcript_parts, runtime
 
     async def _run_cursor(self, task: Task) -> tuple[list[str], RuntimeConfig]:
         transcript_parts: list[str] = []

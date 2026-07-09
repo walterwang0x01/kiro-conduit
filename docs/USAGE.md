@@ -157,7 +157,7 @@ kiro-conduit run \
 
 这个组合适合“实现便宜优先，评审能力优先”：
 
-- implementor：默认更偏低成本 / 高吞吐
+- implementor：默认更偏低成本 / 高吞吐（也可 `--runtime-kind gemini-cli --kiro-cli gemini`）
 - reviewer：默认更偏强模型
 - planner：如需更稳，也可以单独切到 `kiro-cli-acp`
 

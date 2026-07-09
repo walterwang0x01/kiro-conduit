@@ -30,6 +30,8 @@ def _clamp01(value: float) -> float:
 def _cost_score(runtime_kind: str, model: str) -> float:
     if runtime_kind == "cursor-agent-cli":
         return 1.0
+    if runtime_kind == "gemini-cli":
+        return 0.92
     lower = model.lower()
     if "opus" in lower:
         return 0.35
