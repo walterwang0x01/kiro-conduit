@@ -4,13 +4,19 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      publish_to_pypi:
+        description: "Also publish to PyPI (requires trusted publisher)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
   contents: write
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +46,24 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+
+  publish:
+    needs: build
+    if: github.event_name == 'release' || inputs.publish_to_pypi == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: kiro-conduit-dist
+          path: dist
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

@@ -36,6 +36,9 @@ TWINE_USERNAME=__token__ TWINE_PASSWORD=pypi-... python -m twine upload dist/*
 2. Update `CHANGELOG.md` and `pyproject.toml` version if not already bumped.
 3. Create a GitHub Release with tag `v0.1.0` (must match `project.version`).
 4. Workflow `.github/workflows/release.yml` builds sdist/wheel and uploads to PyPI.
+   - `release.published` event: build + attach assets + publish to PyPI
+   - `workflow_dispatch` default: build only
+   - `workflow_dispatch` with `publish_to_pypi=true`: build + publish
 5. Even if PyPI publish fails, the workflow now uploads `dist/*` as:
    - a GitHub Actions artifact: `kiro-conduit-dist`
    - GitHub Release assets on the tag release
@@ -50,6 +53,12 @@ python -m pip install build
 python -m build
 python -m twine check dist/*
 ```
+
+Manual dry-run in GitHub Actions:
+
+1. Open Actions → `Release`
+2. Click `Run workflow`
+3. Leave `publish_to_pypi` unchecked to only build artifacts
 
 ## User install paths
 
