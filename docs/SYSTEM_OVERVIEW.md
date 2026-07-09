@@ -70,8 +70,9 @@ kiro-conduit run \
 
 ## 推荐阅读顺序
 
-1. `USAGE.md`：先会用
-2. `runtime-routing.md`：再会调参
-3. `ARCHITECTURE.md`：最后看实现
-4. `PRD.md` / `ROADMAP.md`：理解定位和演进方向
-5. Bridge 仓库的 `docs/SYSTEM_OVERVIEW.md`：LWA 全体系视角
+1. `PITCH.md`：对外介绍
+2. `USAGE.md`：先会用
+3. `runtime-routing.md`：再会调参
+4. `ARCHITECTURE.md`：最后看实现
+5. `PRD.md` / `ROADMAP.md`：理解定位和演进方向
+6. Bridge 仓库的 `docs/SYSTEM_OVERVIEW.md`：LWA 全体系视角

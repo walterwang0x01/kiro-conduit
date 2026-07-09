@@ -1,6 +1,6 @@
 # Runtime Routing（生产完整版）
 
-`kiro-conduit` 的生产路由是**两层路由 + 角色分桶 + 多目标自适应**：
+**Conduit（kiro-conduit）** 在 **LWA** 中的生产路由是**两层路由 + 角色分桶 + 多目标自适应**：
 
 1. CLI 路由：`cursor-agent-cli` 或 `kiro-cli-acp`
 2. Kiro 模型路由：复杂度 + 实时 `--list-models` 选模

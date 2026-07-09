@@ -1,8 +1,10 @@
-# Roadmap：kiro-conduit
+# Roadmap：Conduit（kiro-conduit）
 
 > 受众：项目维护者 / 早期贡献者
 >
 > 作用：回答"分几步走、每步做什么、什么时候能演示给人看"
+>
+> LWA 体系定位见 [`PITCH.md`](./PITCH.md) · [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md)
 
 ---
 

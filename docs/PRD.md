@@ -1,8 +1,10 @@
-# PRD：kiro-conduit
+# PRD：Conduit（kiro-conduit）
 
 > 受众：项目维护者 / 早期使用者 / 想了解项目定位的人
 >
 > 作用：回答"这个项目到底要解决什么、不解决什么、做到什么样子算成功"
+>
+> **LWA 体系**：Conduit 是 **Lark Local Agent Workbench** 的 DAG 编排层；飞书入口由 [Bridge（lark-kiro-bridge）](https://github.com/walterwang0x01/lark-kiro-bridge) 提供。对外介绍见 [`PITCH.md`](./PITCH.md)。
 
 ---
 
@@ -22,7 +24,7 @@
 
 我当时手写了一份"多窗口并行 spec"做调度指引，但这本质是**手动模拟一个并行编排器**——用人脑做 DAG 调度、用约定做共享文件锁、用 stash 做隔离。
 
-**kiro-conduit 就是把这个手动流程自动化。**
+**Conduit（kiro-conduit）** 就是把这个手动流程自动化。
 
 ## 2. 解决什么
 
@@ -135,7 +137,7 @@ MVP 必须能完成**一次真实演示**：
 **决策**：MVP 用 **Python 3.11+**
 
 **原因**：
-- 同作者的 [lark-kiro-bridge](https://github.com/walterwang0x01/lark-kiro-bridge) 已实现 ACP 客户端（虽然是 TypeScript），Python 重写成本可控
+- 同作者的 [Bridge（lark-kiro-bridge）](https://github.com/walterwang0x01/lark-kiro-bridge) 已实现 ACP 客户端（TypeScript），是 LWA 飞书入口；Python 重写 Conduit 侧 ACP 成本可控
 - ACP 的 JSON-RPC + 子进程管理在 Python 里成熟（asyncio + subprocess）
 - 用户群（Python 后端工程师）多
 - 备选 Rust 留给后续性能瓶颈出现时
