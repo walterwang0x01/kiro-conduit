@@ -8,6 +8,16 @@ from typing import Literal
 RuntimeKind = Literal["kiro-cli-acp", "cursor-agent-cli", "gemini-cli"]
 
 
+def coerce_runtime_kind(kind: str, *, default: RuntimeKind = "kiro-cli-acp") -> RuntimeKind:
+    if kind == "kiro-cli-acp":
+        return "kiro-cli-acp"
+    if kind == "cursor-agent-cli":
+        return "cursor-agent-cli"
+    if kind == "gemini-cli":
+        return "gemini-cli"
+    return default
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     """Agent CLI 运行时配置（替代裸 kiro_cli_path）。"""

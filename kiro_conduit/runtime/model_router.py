@@ -115,25 +115,25 @@ def resolve_runtime_for_prompt(
 ) -> RuntimeConfig:
     score = _complexity_score(prompt)
     if runtime.kind == "cursor-agent-cli":
-        chosen = replace(runtime, model=runtime.model or "Auto")
+        resolved = replace(runtime, model=runtime.model or "Auto")
         logger.info(
             "[runtime] role=%s kind=%s model=%s score=%s reason=cursor-fixed-auto",
             role,
-            chosen.kind,
-            chosen.model,
+            resolved.kind,
+            resolved.model,
             score,
         )
-        return chosen
+        return resolved
     if runtime.kind == "gemini-cli":
-        chosen = replace(runtime, model=runtime.model or "auto")
+        resolved = replace(runtime, model=runtime.model or "auto")
         logger.info(
             "[runtime] role=%s kind=%s model=%s score=%s reason=gemini-fixed-model",
             role,
-            chosen.kind,
-            chosen.model,
+            resolved.kind,
+            resolved.model,
             score,
         )
-        return chosen
+        return resolved
     if runtime.model:
         logger.info(
             "[runtime] role=%s kind=%s model=%s score=%s reason=kiro-fixed-profile",
@@ -158,7 +158,7 @@ def resolve_runtime_for_prompt(
 
     if score >= runtime.hard_threshold:
         tier = "hard"
-        chosen = (
+        chosen_model = (
             _pick_first(
                 models,
                 _candidates_for_tier(runtime.hard_tier, ["claude-sonnet-5", "claude-sonnet-4.6"]),
@@ -167,7 +167,7 @@ def resolve_runtime_for_prompt(
         )
     elif score >= runtime.medium_threshold:
         tier = "medium"
-        chosen = (
+        chosen_model = (
             _pick_first(
                 models,
                 _candidates_for_tier(runtime.medium_tier, ["claude-opus-4.8", "claude-opus-4.7"]),
@@ -176,11 +176,11 @@ def resolve_runtime_for_prompt(
         )
     else:
         tier = "simple"
-        chosen = (
+        chosen_model = (
             _pick_first(models, _candidates_for_tier(runtime.simple_tier, ["claude-sonnet-5"]))
             or registry.default_model
         )
-    resolved = replace(runtime, model=chosen or runtime.model)
+    resolved = replace(runtime, model=chosen_model or runtime.model)
     logger.info(
         "[runtime] role=%s kind=%s model=%s score=%s tier=%s available_models=%s reason=kiro-smart",
         role,

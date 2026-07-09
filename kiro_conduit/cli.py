@@ -41,12 +41,30 @@ from kiro_conduit.runtime.quota import (
     fallback_kinds_for_bucket,
     is_quota_blocked,
     pick_first_available_kind,
+    probe_all_runtime_kinds,
     probe_runtime_kind,
 )
+from kiro_conduit.runtime.types import coerce_runtime_kind
 
 logger = logging.getLogger(__name__)
 
 _LOG_FMT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+
+def _rec_int(data: dict[str, object], key: str) -> int:
+    value = data.get(key, 0)
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    return 0
+
+
+def _rec_float(data: dict[str, object], key: str) -> float:
+    value = data.get(key, 0)
+    if isinstance(value, (int, float)):
+        return float(value)
+    return 0.0
 
 
 def _configure_run_logging(dashboard: bool, log_path: Path) -> None:
@@ -113,11 +131,11 @@ def _runtime_from_args(
     if resolved_model is None:
         resolved_model = model
     allowed_kinds = {"kiro-cli-acp", "cursor-agent-cli", "gemini-cli"}
-    runtime_kind = kind if kind in allowed_kinds else "kiro-cli-acp"
+    runtime_kind = coerce_runtime_kind(kind if kind in allowed_kinds else "kiro-cli-acp")
     if is_quota_blocked(probe_runtime_kind(runtime_kind)):
         fallback = pick_first_available_kind(fallback_kinds_for_bucket(adaptive_bucket))
         if fallback:
-            runtime_kind = fallback
+            runtime_kind = coerce_runtime_kind(fallback)
     return RuntimeConfig.from_cli(
         kiro_cli=bin_override,
         runtime_kind=runtime_kind,
@@ -220,21 +238,21 @@ def _print_runtime_metrics_report(records: list[RuntimeMetricRecord]) -> None:
         for row in rows:
             extra = ""
             if "verdict_pass_rate" in row:
-                extra = f" verdict_pass_rate={float(row['verdict_pass_rate']):.0%}"
-            duration_s = round(float(row.get("avg_duration_ms") or 0) / 1000, 1)
+                extra = f" verdict_pass_rate={_rec_float(row, 'verdict_pass_rate'):.0%}"
+            duration_s = round(_rec_float(row, "avg_duration_ms") / 1000, 1)
             print(
                 "  "
                 f"{row['runtime_kind']} / {row['model']}: "
                 f"total={row['total']} success={row['success']} failed={row['failed']} "
                 "success_rate="
-                f"{float(row['success_rate']):.0%} "
+                f"{_rec_float(row, 'success_rate'):.0%} "
                 f"avg_files={row['avg_files_changed']} "
                 f"avg_duration={duration_s}s "
-                f"score={float(row['score']):.2f}"
+                f"score={_rec_float(row, 'score'):.2f}"
                 f"{extra}"
             )
         recommendation = recommend_strategy(records, bucket=bucket)
-        if recommendation.get("sample_size", 0):
+        if _rec_int(recommendation, "sample_size"):
             print(
                 f"\n✓ adaptive recommendation [{bucket}]:"
                 f" runtime={recommendation.get('preferred_runtime_kind') or '(keep current)'}"
@@ -249,14 +267,14 @@ def _apply_adaptive_recommendation(
     recommendation = {"sample_size": 0, "reason": "insufficient-history"}
     for candidate in _bucket_candidates(bucket):
         recommendation = recommend_strategy(records, bucket=candidate)
-        if recommendation.get("sample_size", 0) > 0:
+        if _rec_int(recommendation, "sample_size") > 0:
             break
     if not hasattr(args, "_adaptive_runtime_kind_by_bucket"):
         args._adaptive_runtime_kind_by_bucket = {}
     if not hasattr(args, "_adaptive_model_by_bucket"):
         args._adaptive_model_by_bucket = {}
     mode = getattr(args, "adaptive_mode", "suggest")
-    if mode == "off" or recommendation.get("sample_size", 0) <= 0:
+    if mode == "off" or _rec_int(recommendation, "sample_size") <= 0:
         return
     if mode == "apply-aggressive":
         args._adaptive_runtime_kind_by_bucket[bucket] = recommendation.get(
@@ -266,13 +284,13 @@ def _apply_adaptive_recommendation(
         return
     if (
         mode == "apply-safe"
-        and recommendation.get("sample_size", 0) >= 8
-        and float(recommendation.get("runtime_success_rate") or 0) >= 0.9
+        and _rec_int(recommendation, "sample_size") >= 8
+        and _rec_float(recommendation, "runtime_success_rate") >= 0.9
     ):
         args._adaptive_runtime_kind_by_bucket[bucket] = recommendation.get(
             "preferred_runtime_kind"
         )
-        if float(recommendation.get("model_success_rate") or 0) >= 0.9:
+        if _rec_float(recommendation, "model_success_rate") >= 0.9:
             args._adaptive_model_by_bucket[bucket] = recommendation.get(
                 "preferred_model"
             )
@@ -776,15 +794,31 @@ async def _plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_quota_report() -> None:
+    print("\n✓ runtime quota status:")
+    for status in probe_all_runtime_kinds():
+        ratio = ""
+        if status.remaining_ratio is not None:
+            ratio = f" remaining={status.remaining_ratio:.0%}"
+        print(f"  {status.runtime_kind}: {status.state}{ratio} ({status.detail})")
+
+
 def _report(args: argparse.Namespace) -> int:
+    if getattr(args, "quota_only", False):
+        _print_quota_report()
+        return 0
     base_repo = Path(args.base_repo).expanduser().resolve()
     path = metrics_path(base_repo)
     records = load_metrics(path)
     if not records:
         print(f"✗ no runtime metrics found: {path}")
+        if not getattr(args, "no_quota", False):
+            _print_quota_report()
         return 1
     print(f"✓ runtime metrics: {path}")
     _print_runtime_metrics_report(records)
+    if not getattr(args, "no_quota", False):
+        _print_quota_report()
     return 0
 
 
@@ -1005,6 +1039,16 @@ def main(argv: list[str] | None = None) -> int:
         choices=("off", "suggest", "apply-safe", "apply-aggressive"),
         default="suggest",
         help="report-only flag reserved for consistency with run mode",
+    )
+    report_p.add_argument(
+        "--quota-only",
+        action="store_true",
+        help="only print runtime quota probe results",
+    )
+    report_p.add_argument(
+        "--no-quota",
+        action="store_true",
+        help="skip runtime quota status section",
     )
 
     args = parser.parse_args(argv)

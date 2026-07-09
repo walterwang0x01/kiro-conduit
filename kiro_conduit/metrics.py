@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
+from typing import TypedDict
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +22,34 @@ class RuntimeMetricRecord:
     execution_ok: bool | None = None
     verdict_pass: bool | None = None
     duration_ms: int = 0
+
+
+class _MetricRow(TypedDict):
+    runtime_kind: str
+    model: str
+    total: int
+    success: int
+    failed: int
+    avg_files_changed: int
+    avg_attempts: int
+    avg_duration_ms: int
+    verdict_pass: int
+    verdict_total: int
+
+
+def _new_metric_row(runtime_kind: str, model: str) -> _MetricRow:
+    return {
+        "runtime_kind": runtime_kind,
+        "model": model,
+        "total": 0,
+        "success": 0,
+        "failed": 0,
+        "avg_files_changed": 0,
+        "avg_attempts": 0,
+        "avg_duration_ms": 0,
+        "verdict_pass": 0,
+        "verdict_total": 0,
+    }
 
 
 def _clamp01(value: float) -> float:
@@ -42,11 +71,25 @@ def _cost_score(runtime_kind: str, model: str) -> float:
     return 0.5
 
 
+def _as_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    return 0
+
+
+def _as_float(value: object) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return 0.0
+
+
 def _row_score(row: dict[str, object]) -> float:
-    success_rate = float(row["success_rate"])
-    avg_attempts = float(row["avg_attempts"])
-    avg_files = float(row["avg_files_changed"])
-    avg_duration_ms = float(row.get("avg_duration_ms") or 0)
+    success_rate = _as_float(row["success_rate"])
+    avg_attempts = _as_float(row["avg_attempts"])
+    avg_files = _as_float(row["avg_files_changed"])
+    avg_duration_ms = _as_float(row.get("avg_duration_ms", 0))
     runtime_kind = str(row["runtime_kind"])
     model = str(row["model"])
     retry_score = 1 / max(avg_attempts, 1.0)
@@ -96,54 +139,40 @@ def save_metrics(path: Path, records: list[RuntimeMetricRecord]) -> None:
 def summarize_metrics(
     records: list[RuntimeMetricRecord], bucket: str | None = None
 ) -> list[dict[str, object]]:
-    rows: dict[tuple[str, str], dict[str, object]] = {}
+    rows: dict[tuple[str, str], _MetricRow] = {}
     for record in records:
         if bucket is not None and record.task_bucket != bucket:
             continue
         key = (record.runtime_kind, record.model)
-        row = rows.setdefault(
-            key,
-            {
-                "runtime_kind": record.runtime_kind,
-                "model": record.model,
-                "total": 0,
-                "success": 0,
-                "failed": 0,
-                "avg_files_changed": 0,
-                "avg_attempts": 0,
-                "avg_duration_ms": 0,
-                "verdict_pass": 0,
-                "verdict_total": 0,
-            },
-        )
-        row["total"] = int(row["total"]) + 1
+        row = rows.setdefault(key, _new_metric_row(record.runtime_kind, record.model))
+        row["total"] += 1
         # reviewer：用 execution_ok 判定 runtime 成败；其它桶继续用 passed
         ok = record.execution_ok if record.execution_ok is not None else record.passed
         if ok:
-            row["success"] = int(row["success"]) + 1
+            row["success"] += 1
         else:
-            row["failed"] = int(row["failed"]) + 1
+            row["failed"] += 1
         if record.verdict_pass is not None:
-            row["verdict_pass"] = int(row["verdict_pass"]) + (1 if record.verdict_pass else 0)
-            row["verdict_total"] = int(row["verdict_total"]) + 1
-        row["avg_files_changed"] = int(row["avg_files_changed"]) + record.files_changed
-        row["avg_attempts"] = int(row["avg_attempts"]) + record.attempts
-        row["avg_duration_ms"] = int(row["avg_duration_ms"]) + max(0, record.duration_ms)
+            row["verdict_pass"] += 1 if record.verdict_pass else 0
+            row["verdict_total"] += 1
+        row["avg_files_changed"] += record.files_changed
+        row["avg_attempts"] += record.attempts
+        row["avg_duration_ms"] += max(0, record.duration_ms)
     summary: list[dict[str, object]] = []
     for row in rows.values():
-        total = int(row["total"])
-        success = int(row["success"])
-        avg_files = int(row["avg_files_changed"])
-        avg_attempts = int(row["avg_attempts"])
-        avg_duration = int(row["avg_duration_ms"])
+        total = row["total"]
+        success = row["success"]
+        avg_files = row["avg_files_changed"]
+        avg_attempts = row["avg_attempts"]
+        avg_duration = row["avg_duration_ms"]
         success_rate = (success / total) if total else 0.0
-        verdict_total = int(row["verdict_total"])
+        verdict_total = row["verdict_total"]
         out: dict[str, object] = {
             "runtime_kind": row["runtime_kind"],
             "model": row["model"],
             "total": total,
             "success": success,
-            "failed": int(row["failed"]),
+            "failed": row["failed"],
             "success_rate": success_rate,
             "avg_files_changed": round(avg_files / total) if total else 0,
             "avg_attempts": round(avg_attempts / total, 2) if total else 0,
@@ -151,13 +180,13 @@ def summarize_metrics(
             "score": 0.0,
         }
         if verdict_total:
-            out["verdict_pass_rate"] = round(int(row["verdict_pass"]) / verdict_total, 3)
+            out["verdict_pass_rate"] = round(row["verdict_pass"] / verdict_total, 3)
         summary.append(out)
-    for row in summary:
-        row["score"] = _row_score(row)
+    for summary_row in summary:
+        summary_row["score"] = _row_score(summary_row)
     return sorted(
         summary,
-        key=lambda item: (-float(item["score"]), -float(item["success_rate"]), -int(item["total"])),
+        key=lambda item: (-_as_float(item["score"]), -_as_float(item["success_rate"]), -_as_int(item["total"])),
     )
 
 
@@ -165,7 +194,7 @@ def recommend_strategy(
     records: list[RuntimeMetricRecord], bucket: str | None = None
 ) -> dict[str, object]:
     rows = summarize_metrics(records, bucket=bucket)
-    eligible = [row for row in rows if int(row["total"]) >= 3]
+    eligible = [row for row in rows if _as_int(row["total"]) >= 3]
     if not eligible:
         return {"sample_size": 0, "reason": "insufficient-history"}
     best_runtime = eligible[0]
@@ -173,19 +202,19 @@ def recommend_strategy(
         (row for row in eligible if row["runtime_kind"] == "kiro-cli-acp"),
         None,
     )
+    best_runtime_rate = _as_float(best_runtime["success_rate"])
+    best_kiro_rate = _as_float(best_kiro["success_rate"]) if best_kiro else None
     return {
-        "sample_size": sum(int(row["total"]) for row in eligible),
+        "sample_size": sum(_as_int(row["total"]) for row in eligible),
         "preferred_runtime_kind": (
-            best_runtime["runtime_kind"] if float(best_runtime["success_rate"]) >= 0.75 else None
+            best_runtime["runtime_kind"] if best_runtime_rate >= 0.75 else None
         ),
         "preferred_model": (
-            best_kiro["model"] if best_kiro and float(best_kiro["success_rate"]) >= 0.75 else None
+            best_kiro["model"] if best_kiro and (best_kiro_rate or 0) >= 0.75 else None
         ),
-        "runtime_success_rate": float(best_runtime["success_rate"]),
-        "model_success_rate": (
-            float(best_kiro["success_rate"]) if best_kiro else None
-        ),
-        "runtime_score": float(best_runtime["score"]),
-        "model_score": float(best_kiro["score"]) if best_kiro else None,
+        "runtime_success_rate": best_runtime_rate,
+        "model_success_rate": best_kiro_rate,
+        "runtime_score": _as_float(best_runtime["score"]),
+        "model_score": _as_float(best_kiro["score"]) if best_kiro else None,
         "reason": "history-multi-objective-score",
     }

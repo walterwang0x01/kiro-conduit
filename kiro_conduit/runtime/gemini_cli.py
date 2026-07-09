@@ -13,7 +13,7 @@ from kiro_conduit.runtime.types import RuntimeConfig
 logger = logging.getLogger(__name__)
 
 
-def _extract_message_text(obj: dict) -> str:
+def _extract_message_text(obj: dict[str, object]) -> str:
     content = obj.get("content")
     if isinstance(content, str) and content:
         return content

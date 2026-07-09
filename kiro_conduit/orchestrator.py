@@ -44,7 +44,7 @@ from kiro_conduit.run_state import (
     save_state,
     state_path,
 )
-from kiro_conduit.runtime.types import RuntimeConfig
+from kiro_conduit.runtime.types import RuntimeConfig, coerce_runtime_kind
 from kiro_conduit.types import Task
 from kiro_conduit.worktree import WorktreeHandle, WorktreeManager
 
@@ -121,11 +121,7 @@ class ParallelOrchestrator:
         self._kiro_cli_path = kiro_cli_path
         self._runtime = implementor_runtime or RuntimeConfig.from_cli(
             kiro_cli=kiro_cli_path,
-            runtime_kind=(
-                runtime_kind
-                if runtime_kind in {"cursor-agent-cli", "gemini-cli", "kiro-cli-acp"}
-                else "kiro-cli-acp"
-            ),
+            runtime_kind=coerce_runtime_kind(runtime_kind),
             timeout=prompt_timeout,
         )
         self._prompt_timeout = prompt_timeout
