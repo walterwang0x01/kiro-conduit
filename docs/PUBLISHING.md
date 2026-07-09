@@ -36,6 +36,12 @@ TWINE_USERNAME=__token__ TWINE_PASSWORD=pypi-... python -m twine upload dist/*
 2. Update `CHANGELOG.md` and `pyproject.toml` version if not already bumped.
 3. Create a GitHub Release with tag `v0.1.0` (must match `project.version`).
 4. Workflow `.github/workflows/release.yml` builds sdist/wheel and uploads to PyPI.
+5. Even if PyPI publish fails, the workflow now uploads `dist/*` as:
+   - a GitHub Actions artifact: `kiro-conduit-dist`
+   - GitHub Release assets on the tag release
+
+This means trusted publishing misconfiguration no longer blocks users from downloading
+the built wheel/sdist or maintainers from doing a later manual `twine upload`.
 
 Manual dry-run locally:
 
@@ -64,3 +70,11 @@ Verify:
 kiro-conduit --help
 kiro-conduit report --quota-only
 ```
+
+## If PyPI still fails
+
+1. Open the failed `Release` workflow run
+2. Download artifact `kiro-conduit-dist`, or fetch the files from the GitHub Release assets
+3. After fixing trusted publishing, either:
+   - re-run the workflow, or
+   - upload the saved `dist/*` manually with `twine`
