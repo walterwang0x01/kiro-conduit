@@ -1,19 +1,25 @@
 [project]
 name = "kiro-conduit"
 version = "0.0.1"
-description = "Parallel spec executor for Kiro CLI: spec → DAG → multi-worker → sequential merge."
+description = "LWA Conduit — DAG parallel orchestration for local multi-CLI agents (Cursor/Kiro). Spec → DAG → role workers → merge."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [{ name = "Walter Wang", email = "wangwalterhandsome@gmail.com" }]
 keywords = [
+    "lwa",
+    "lark-local-agent-workbench",
+    "conduit",
     "kiro",
+    "cursor",
+    "multi-cli",
     "ai-coding",
     "multi-agent",
     "orchestration",
     "git-worktree",
     "spec-driven-development",
     "agent-client-protocol",
+    "adaptive-routing",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
