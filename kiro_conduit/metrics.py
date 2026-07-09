@@ -186,7 +186,11 @@ def summarize_metrics(
         summary_row["score"] = _row_score(summary_row)
     return sorted(
         summary,
-        key=lambda item: (-_as_float(item["score"]), -_as_float(item["success_rate"]), -_as_int(item["total"])),
+        key=lambda item: (
+            -_as_float(item["score"]),
+            -_as_float(item["success_rate"]),
+            -_as_int(item["total"]),
+        ),
     )
 
 
