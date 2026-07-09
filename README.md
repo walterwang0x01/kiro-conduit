@@ -14,7 +14,7 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
   <a href="https://github.com/walterwang0x01/lwa-conduit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/walterwang0x01/lwa-conduit/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="status: M2 in progress" src="https://img.shields.io/badge/status-M2%20in%20progress-green">
-  <img alt="tests" src="https://img.shields.io/badge/tests-304%20passed-brightgreen">
+  <img alt="tests" src="https://img.shields.io/badge/tests-388%20passed-brightgreen">
   <img alt="ruff" src="https://img.shields.io/badge/ruff-clean-brightgreen">
   <img alt="mypy" src="https://img.shields.io/badge/mypy--strict-clean-brightgreen">
   <img alt="python" src="https://img.shields.io/badge/python-3.11%2B-blue">
@@ -67,7 +67,16 @@ spec.md
 
 ## Quick Start：5 分钟跑通
 
-> 前提：已装 [Kiro CLI](https://github.com/kirodotdev/Kiro) 并 `kiro-cli login` 完成。
+> 前提：已装 [Kiro CLI](https://github.com/kirodotdev/Kiro) 并 `kiro-cli login` 完成（或改用 Cursor / Gemini runtime）。
+
+### 方式 A：PyPI（推荐）
+
+```bash
+pipx install kiro-conduit
+kiro-conduit --help
+```
+
+### 方式 B：源码开发
 
 ```bash
 # 1. 克隆
