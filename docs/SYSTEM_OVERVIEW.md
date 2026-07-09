@@ -1,14 +1,16 @@
-# 系统总览：kiro-conduit 在多 CLI 体系中的角色
+# 系统总览：Conduit 在 LWA 中的角色
+
+**Lark Local Agent Workbench（LWA）** 由 **Bridge（lark-kiro-bridge）** 与 **Conduit（kiro-conduit）** 组成。本文说明 Conduit 在整个体系里的位置与用法。
 
 这份文档不讨论实现细节，而是帮助读者快速理解：
 
-- `kiro-conduit` 在整个系统里的位置
+- Conduit 在整个系统里的位置
 - 为什么它现在支持多 CLI / 多角色 / 自适应路由
 - 生产上应该怎么使用它
 
 ## 定位
 
-`kiro-conduit` 是一个面向大 spec 的并行编排器，不是普通聊天入口。
+**Conduit（kiro-conduit）** 是一个面向大 spec 的并行编排器，不是普通聊天入口。
 
 它的职责是：
 
@@ -18,12 +20,14 @@
 4. 对结果做 verifier / reviewer 检查
 5. 输出可 review / 可 merge 的结果
 
-## 在整套系统中的位置
+## 在 LWA 中的位置
 
-- `lark-kiro-bridge` 负责飞书入口与交互式体验
-- `kiro-conduit` 负责长任务、并行、角色隔离和编排
+- **Bridge（lark-kiro-bridge）** 负责飞书入口与交互式体验
+- **Conduit（kiro-conduit）** 负责长任务、并行、角色隔离和编排
 
-如果说 bridge 解决的是“怎么在本机上把 Agent 用起来”，那 conduit 解决的是“怎么把一个大任务拆开并稳定执行完”。
+如果说 Bridge 解决的是“怎么在本机上把 Agent 用起来”，那 Conduit 解决的是“怎么把一个大任务拆开并稳定执行完”。
+
+飞书里可通过 Bridge 的 `/conduit` 命令触发 Conduit；也可在终端直接运行 `kiro-conduit`。
 
 ## 为什么现在支持多 CLI
 
@@ -70,3 +74,4 @@ kiro-conduit run \
 2. `runtime-routing.md`：再会调参
 3. `ARCHITECTURE.md`：最后看实现
 4. `PRD.md` / `ROADMAP.md`：理解定位和演进方向
+5. Bridge 仓库的 `docs/SYSTEM_OVERVIEW.md`：LWA 全体系视角

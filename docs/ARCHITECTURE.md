@@ -1,10 +1,10 @@
-# 架构：kiro-conduit
+# 架构：Conduit（kiro-conduit）
 
 > 受众：项目实现者 / 想读懂代码的人 / 想改架构的人
 >
 > 作用：回答"系统怎么搭、为什么这么搭、写代码时要遵守哪些边界"
 >
-> 先看整体定位与对外说明：[`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md)；先看生产调参：[`runtime-routing.md`](./runtime-routing.md)
+> 先看 **LWA** 整体定位：[`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md)；先看生产调参：[`runtime-routing.md`](./runtime-routing.md)
 
 ---
 
