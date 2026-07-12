@@ -1,4 +1,4 @@
-# 使用指南：`kiro-conduit run`
+# 使用指南：`lwa-conduit run`
 
 把一份 workspace（含 `dag.yaml`）跑成完整流程：按 DAG 波次并行派给 Kiro 写代码 →
 分层验证 → 默认产出可 review 的分支（或 `--merge` 合并）。
@@ -9,7 +9,7 @@
 
 ```bash
 pip install -e '.[dev]'        # 开发安装（仓库内）
-# 或 pipx install kiro-conduit  （PyPI 发布后）
+# 或 pipx install lwa-conduit  （PyPI 发布后）
 ```
 
 前提：已装并登录 [Kiro CLI](https://github.com/kirodotdev/Kiro)（`kiro-cli` 在 PATH 上）。
@@ -17,9 +17,9 @@ pip install -e '.[dev]'        # 开发安装（仓库内）
 ## 用在你自己的项目上（最短用法）
 
 ```bash
-pipx install kiro-conduit              # 全局隔离安装，kiro-conduit 进 PATH
+pipx install lwa-conduit              # 全局隔离安装，lwa-conduit 进 PATH
 cd my-project                          # 你的 git 仓库
-kiro-conduit run \
+lwa-conduit run \
   --workspace ./my-spec-ws \           # 含 dag.yaml + specs 的目录
   --base-repo . \                      # 代码写进当前仓库（spec 与代码同仓库时可省略）
   --venv .venv                         # 用本项目 venv 跑验证（见下）
@@ -31,7 +31,7 @@ kiro-conduit run \
 > ⚠️ **一个必须理解的点**：verifier 跑的是**你仓库自己的** acceptance 命令（`pytest` /
 > `ruff` 等），所以它得在**你仓库的环境**里跑。两种方式二选一：
 > - 跑之前 `source .venv/bin/activate`（最简单），或
-> - 用 `--venv .venv` 显式指定 —— kiro-conduit 会把 `.venv/bin` 前置到 PATH，
+> - 用 `--venv .venv` 显式指定 —— lwa-conduit 会把 `.venv/bin` 前置到 PATH，
 >   verifier 和 kiro-cli 都用这个 venv 的工具，不必事先激活。
 
 ## workspace 结构
@@ -72,16 +72,16 @@ shared_files: []
 ## 基本用法
 
 ```bash
-kiro-conduit run --workspace my-workspace/
+lwa-conduit run --workspace my-workspace/
 ```
 
-默认是 **review 模式**：跑完只把每个通过的 task 留在 `kiro-conduit/<task>` 分支上，
+默认是 **review 模式**：跑完只把每个通过的 task 留在 `lwa-conduit/<task>` 分支上，
 打印分支清单 + 如何 diff，**不自动合并**。你 review 后再决定合不合。
 
 要合并回 base 分支：
 
 ```bash
-kiro-conduit run --workspace my-workspace/ --merge
+lwa-conduit run --workspace my-workspace/ --merge
 ```
 
 ## 生产安全行为（重要）
@@ -89,7 +89,7 @@ kiro-conduit run --workspace my-workspace/ --merge
 - **base 分支默认 = 仓库当前分支**，不写死 `main`。用 `--base-branch` 覆盖。
 - **绝不动你的主工作区 / 当前分支**：合并在一个独立的 integration worktree 里做。
   - base 分支没被检出 → 在其上推进。
-  - base 分支正是你当前所在分支 → 结果合到 `kiro-conduit/integration` 分支，
+  - base 分支正是你当前所在分支 → 结果合到 `lwa-conduit/integration` 分支，
     你的分支和工作区完全不动，事后自行 review 再合（review-and-accept）。
 - **脏工作区是安全的**：worktree 从已提交的 HEAD 起，你未提交的改动不受影响。
   启动预检会打印当前分支 / 脏区状态 / base / 去向。
@@ -103,11 +103,11 @@ kiro-conduit run --workspace my-workspace/ --merge
 | `--base-repo <dir>` | 目标 git 仓库（默认 = workspace 目录） |
 | `--base-branch <name>` | base 分支（默认 = 仓库当前分支） |
 | `--venv <dir>` | 把该 venv 的 `bin/` 前置到 PATH，让验证（pytest/lint）和 kiro-cli 用你项目的工具（默认继承当前 PATH） |
-| `--review` | 合并后对**组装好的集成结果**起一个 kiro-cli，对照 spec 审整条 diff，出 `.kiro-conduit/review.md`（抓测试发现不了的 spec 漂移）。默认关 |
+| `--review` | 合并后对**组装好的集成结果**起一个 kiro-cli，对照 spec 审整条 diff，出 `.lwa-conduit/review.md`（抓测试发现不了的 spec 漂移）。默认关 |
 | `--review-tasks` | 【较贵】在执行期对**每个 task** 也跑语义审（对照各自 spec，超时 600s）；`--review` 只审整体集成。默认关 |
 | `--review-model <id>` | 语义评审用的模型（默认 Kiro 默认模型） |
 | `--sandbox` | 【实验】用 OS 沙箱（macOS Seatbelt / Linux bwrap）把 kiro-cli 的**文件写入限制在该 task 的 worktree**，读取/网络放开（不破坏登录）；无对应 OS 工具时自动跳过。默认关 |
-| `--merge` | 合并通过的 task 分支到 `kiro-conduit/integration`（默认不合，只产出分支供 review）。**部分任务失败时，仍会把已通过的合进 integration 并报告失败项**，不会因一个失败丢掉全部成果 |
+| `--merge` | 合并通过的 task 分支到 `lwa-conduit/integration`（默认不合，只产出分支供 review）。**部分任务失败时，仍会把已通过的合进 integration 并报告失败项**，不会因一个失败丢掉全部成果 |
 | `--resume` | 从上次 run-state 续跑，已通过的 task 不重跑 |
 | `--dashboard` | rich 实时 TUI（wave / worker / 锁 / merge 状态） |
 | `--diagnose` | merge 冲突时产出结构化诊断（冲突文件 + 内容） |
@@ -128,12 +128,12 @@ kiro-conduit run --workspace my-workspace/ --merge
 查看历史指标：
 
 ```bash
-kiro-conduit report --base-repo .
+lwa-conduit report --base-repo .
 ```
 
 ## 成本优先的多模型路由
 
-当 runtime 是 `kiro-cli-acp` 时，`kiro-conduit` 会先根据 prompt 复杂度打分，再从
+当 runtime 是 `kiro-cli-acp` 时，`lwa-conduit` 会先根据 prompt 复杂度打分，再从
 `kiro-cli chat --list-models --format json` 的实时结果中选模型，而不是硬编码假定模型名。
 
 指标按角色分桶（`implementor` / `planner` / `reviewer`），自适应用多目标分数
@@ -143,7 +143,7 @@ kiro-conduit report --base-repo .
 推荐起步策略：
 
 ```bash
-kiro-conduit run \
+lwa-conduit run \
   --workspace my-workspace/ \
   --runtime-kind cursor-agent-cli \
   --kiro-cli agent \
@@ -236,16 +236,16 @@ integration_check: pytest -q
 
 | 变量 | 含义 |
 |------|------|
-| `KIRO_CONDUIT_TASK_ID` | task 标识（可作 DB 名 / 资源前缀后缀） |
-| `KIRO_CONDUIT_PORT_BASE` | 不重叠的端口区间起点（base + 稳定索引×100） |
-| `KIRO_CONDUIT_SCRATCH` | 每个 task 独立的 scratch 目录（已创建，放临时 DB/文件） |
+| `LWA_CONDUIT_TASK_ID` | task 标识（可作 DB 名 / 资源前缀后缀） |
+| `LWA_CONDUIT_PORT_BASE` | 不重叠的端口区间起点（base + 稳定索引×100） |
+| `LWA_CONDUIT_SCRATCH` | 每个 task 独立的 scratch 目录（已创建，放临时 DB/文件） |
 
 示例（pytest 里按 task 选端口/库名）：
 
 ```python
 import os
-PORT = int(os.environ.get("KIRO_CONDUIT_PORT_BASE", "8000"))
-DB_NAME = f"test_{os.environ.get('KIRO_CONDUIT_TASK_ID', 'local')}"
+PORT = int(os.environ.get("LWA_CONDUIT_PORT_BASE", "8000"))
+DB_NAME = f"test_{os.environ.get('LWA_CONDUIT_TASK_ID', 'local')}"
 ```
 
 base 端口可在编排器里用 `ParallelOrchestrator(isolation_base_port=...)` 调整。
@@ -253,4 +253,4 @@ base 端口可在编排器里用 `ParallelOrchestrator(isolation_base_port=...)`
 ## 断点续跑
 
 跑到一半崩了，加 `--resume` 重跑：已通过的 task 从其分支重建、不重跑，从未完成处继续。
-进度记录在 `<base_repo>/.kiro-conduit/run-state.json`。
+进度记录在 `<base_repo>/.lwa-conduit/run-state.json`。

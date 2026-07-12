@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from kiro_conduit.events import (
+from lwa_conduit.events import (
     EventBus,
     LockEvent,
     MergeFinished,

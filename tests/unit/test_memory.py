@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from kiro_conduit.memory import (
+from lwa_conduit.memory import (
     MAX_ENV_LESSONS,
     MAX_FAILURE_PATTERNS,
     MAX_PLAN_EXAMPLES,
@@ -137,20 +137,20 @@ class TestMemoryPersistence:
         assert loaded.plan_examples[0].score == 78
 
     def test_load_missing_file_returns_empty(self, tmp_path: Path) -> None:
-        p = tmp_path / ".kiro-conduit" / "memory.json"
+        p = tmp_path / ".lwa-conduit" / "memory.json"
         mem = load_memory(p)
         assert len(mem.env_lessons) == 0
         assert len(mem.failure_patterns) == 0
 
     def test_load_corrupted_file_returns_empty(self, tmp_path: Path) -> None:
-        p = tmp_path / ".kiro-conduit" / "memory.json"
+        p = tmp_path / ".lwa-conduit" / "memory.json"
         p.parent.mkdir(parents=True)
         p.write_text("not json {{{", encoding="utf-8")
         mem = load_memory(p)
         assert len(mem.env_lessons) == 0
 
     def test_load_wrong_version_returns_empty(self, tmp_path: Path) -> None:
-        p = tmp_path / ".kiro-conduit" / "memory.json"
+        p = tmp_path / ".lwa-conduit" / "memory.json"
         p.parent.mkdir(parents=True)
         p.write_text(json.dumps({"version": 999}), encoding="utf-8")
         mem = load_memory(p)
@@ -158,7 +158,7 @@ class TestMemoryPersistence:
 
     def test_memory_path_location(self, tmp_path: Path) -> None:
         p = memory_path(tmp_path)
-        assert p == tmp_path / ".kiro-conduit" / "memory.json"
+        assert p == tmp_path / ".lwa-conduit" / "memory.json"
 
 
 class TestRetrySuccessNudge:

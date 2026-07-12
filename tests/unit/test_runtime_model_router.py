@@ -1,10 +1,10 @@
-from kiro_conduit.runtime.model_router import resolve_runtime_for_prompt
-from kiro_conduit.runtime.types import RuntimeConfig
+from lwa_conduit.runtime.model_router import resolve_runtime_for_prompt
+from lwa_conduit.runtime.types import RuntimeConfig
 
 
 def test_simple_tier_prefers_balanced(monkeypatch):
     monkeypatch.setattr(
-        "kiro_conduit.runtime.model_router.discover_runtime_registry",
+        "lwa_conduit.runtime.model_router.discover_runtime_registry",
         lambda runtime: type(
             "Entry",
             (),
@@ -21,7 +21,7 @@ def test_simple_tier_prefers_balanced(monkeypatch):
 
 def test_hard_tier_prefers_max(monkeypatch):
     monkeypatch.setattr(
-        "kiro_conduit.runtime.model_router.discover_runtime_registry",
+        "lwa_conduit.runtime.model_router.discover_runtime_registry",
         lambda runtime: type(
             "Entry",
             (),

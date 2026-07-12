@@ -1,6 +1,6 @@
 # Runtime Routing（生产完整版）
 
-**Conduit（kiro-conduit）** 在 **LWA** 中的生产路由是**两层路由 + 角色分桶 + 多目标自适应**：
+**Conduit（lwa-conduit）** 在 **LWA** 中的生产路由是**两层路由 + 角色分桶 + 多目标自适应**：
 
 1. CLI 路由：`cursor-agent-cli` 或 `kiro-cli-acp`
 2. Kiro 模型路由：复杂度 + 实时 `--list-models` 选模
@@ -26,7 +26,7 @@
 起步命令：
 
 ```bash
-kiro-conduit run \
+lwa-conduit run \
   --workspace my-workspace/ \
   --runtime-kind cursor-agent-cli \
   --kiro-cli agent \
@@ -83,7 +83,7 @@ kiro-conduit run \
 - avg files changed / attempts
 - cost proxy（cursor 高、opus 低）
 
-`kiro-conduit report` 会按桶打印 score 与推荐。
+`lwa-conduit report` 会按桶打印 score 与推荐。
 
 ## Reviewer：执行 vs 审查结论
 
@@ -96,14 +96,14 @@ kiro-conduit run \
 
 ## Metrics 文件
 
-路径：`<base-repo>/.kiro-conduit/runtime-metrics.json`
+路径：`<base-repo>/.lwa-conduit/runtime-metrics.json`
 
 常用命令：
 
 ```bash
-kiro-conduit report --base-repo .
-kiro-conduit plan --spec spec.md --out ws/ --adaptive-mode suggest
-kiro-conduit run --workspace ws/ --adaptive-mode apply-safe --review --review-tasks
+lwa-conduit report --base-repo .
+lwa-conduit plan --spec spec.md --out ws/ --adaptive-mode suggest
+lwa-conduit run --workspace ws/ --adaptive-mode apply-safe --review --review-tasks
 ```
 
 ## 生产 rollout 建议

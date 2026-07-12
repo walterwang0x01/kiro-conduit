@@ -11,9 +11,9 @@ from textwrap import dedent
 
 import pytest
 
-from kiro_conduit.dag import load_workspace
-from kiro_conduit.merge import MergeOrchestrator
-from kiro_conduit.worktree import WorktreeManager
+from lwa_conduit.dag import load_workspace
+from lwa_conduit.merge import MergeOrchestrator
+from lwa_conduit.worktree import WorktreeManager
 
 
 def init_repo(path: Path) -> None:
@@ -318,7 +318,7 @@ class TestMergeOrchestrator:
     async def test_base_checked_out_falls_back_to_integration_branch(
         self, base_repo: Path, tmp_path: Path
     ) -> None:
-        """当 base 分支正被主工作区检出时，结果合到 kiro-conduit/integration，main 不动。"""
+        """当 base 分支正被主工作区检出时，结果合到 lwa-conduit/integration，main 不动。"""
         # 切回 main（让 base=main 正被检出）
         subprocess.run(["git", "checkout", "main"], cwd=base_repo, check=True, capture_output=True)
         ws_dir = tmp_path / "ws"
@@ -333,7 +333,7 @@ class TestMergeOrchestrator:
 
         assert report.all_merged
         # 结果在 integration 分支上，main 没动
-        assert _file_on_branch(base_repo, "kiro-conduit/integration", "t1.txt") is not None
+        assert _file_on_branch(base_repo, "lwa-conduit/integration", "t1.txt") is not None
         assert _file_on_branch(base_repo, "main", "t1.txt") is None
 
     @pytest.mark.asyncio

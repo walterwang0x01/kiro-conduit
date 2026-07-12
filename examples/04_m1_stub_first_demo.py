@@ -7,7 +7,7 @@
   - 期望：3/4 task PASS + 4/4 merge 成功 + main pytest 全过
 
 跑法：
-    cd ~/PycharmProjects/kiro-conduit
+    cd ~/PycharmProjects/lwa-conduit
     .venv/bin/python examples/04_m1_stub_first_demo.py
 
 注意：会真调 Kiro CLI，约 3-5 分钟（4 个 task）。
@@ -28,18 +28,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from kiro_conduit.dag import load_workspace  # noqa: E402
-from kiro_conduit.dashboard import Dashboard  # noqa: E402
-from kiro_conduit.events import EventBus  # noqa: E402
-from kiro_conduit.merge import MergeOrchestrator  # noqa: E402
-from kiro_conduit.orchestrator import ParallelOrchestrator  # noqa: E402
+from lwa_conduit.dag import load_workspace  # noqa: E402
+from lwa_conduit.dashboard import Dashboard  # noqa: E402
+from lwa_conduit.events import EventBus  # noqa: E402
+from lwa_conduit.merge import MergeOrchestrator  # noqa: E402
+from lwa_conduit.orchestrator import ParallelOrchestrator  # noqa: E402
 
 DAG_FILE_NAME = "m1-stub-first.yaml"
-USE_DASHBOARD = os.environ.get("KIRO_CONDUIT_DASHBOARD", "").lower() in ("1", "true", "yes")
+USE_DASHBOARD = os.environ.get("LWA_CONDUIT_DASHBOARD", "").lower() in ("1", "true", "yes")
 
 
 def setup_demo_workspace() -> tuple[Path, Path]:
-    workdir = Path(tempfile.mkdtemp(prefix="kiro-conduit-stubfirst-demo-"))
+    workdir = Path(tempfile.mkdtemp(prefix="lwa-conduit-stubfirst-demo-"))
     src_examples = ROOT / "examples"
     shutil.copytree(src_examples / "specs", workdir / "specs")
     src_yaml = (src_examples / "dags" / DAG_FILE_NAME).read_text(encoding="utf-8")
@@ -49,11 +49,11 @@ def setup_demo_workspace() -> tuple[Path, Path]:
 
     subprocess.run(["git", "init", "-b", "main"], cwd=workdir, check=True, capture_output=True)
     subprocess.run(
-        ["git", "config", "user.email", "demo@kiro-conduit.local"],
+        ["git", "config", "user.email", "demo@lwa-conduit.local"],
         cwd=workdir, check=True, capture_output=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "kiro-conduit demo"],
+        ["git", "config", "user.name", "lwa-conduit demo"],
         cwd=workdir, check=True, capture_output=True,
     )
     subprocess.run(["git", "add", "."], cwd=workdir, check=True, capture_output=True)
@@ -144,7 +144,7 @@ async def main() -> int:
         successful_task_ids=successful,
         base_branch="main",
         commit_messages={
-            tid: f"feat({tid}): kiro-conduit M1.1 stub-first demo"
+            tid: f"feat({tid}): lwa-conduit M1.1 stub-first demo"
             for tid in successful
         },
     )

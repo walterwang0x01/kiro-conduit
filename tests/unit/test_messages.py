@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from kiro_conduit.acp.messages import (
+from lwa_conduit.acp.messages import (
     ACP_PROTOCOL_VERSION,
     AcpError,
     JsonRpcNotification,

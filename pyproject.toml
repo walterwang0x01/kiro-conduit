@@ -1,5 +1,5 @@
 [project]
-name = "kiro-conduit"
+name = "lwa-conduit"
 version = "0.1.0"
 description = "LWA Conduit — DAG parallel orchestration for local multi-CLI agents (Cursor/Kiro). Spec → DAG → role workers → merge."
 readme = "README.md"
@@ -53,14 +53,15 @@ Repository = "https://github.com/walterwang0x01/lwa-conduit"
 Issues = "https://github.com/walterwang0x01/lwa-conduit/issues"
 
 [project.scripts]
-kiro-conduit = "kiro_conduit.cli:main"
+lwa-conduit = "lwa_conduit.cli:main"
+kiro-conduit = "lwa_conduit.cli:main"
 
 [build-system]
 requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["kiro_conduit"]
+packages = ["lwa_conduit"]
 
 # ---- ruff ----
 [tool.ruff]
@@ -86,7 +87,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["kiro_conduit"]
+known-first-party = ["lwa_conduit"]
 
 # ---- mypy ----
 [tool.mypy]

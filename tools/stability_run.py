@@ -21,8 +21,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from kiro_conduit.roles import Coordinator, Implementor, Verifier  # noqa: E402
-from kiro_conduit.types import Task  # noqa: E402
+from lwa_conduit.roles import Coordinator, Implementor, Verifier  # noqa: E402
+from lwa_conduit.types import Task  # noqa: E402
 
 
 @dataclass
@@ -36,12 +36,12 @@ class RunStat:
 
 
 def setup_test_repo() -> Path:
-    workdir = Path(tempfile.mkdtemp(prefix="kiro-conduit-stab-"))
+    workdir = Path(tempfile.mkdtemp(prefix="lwa-conduit-stab-"))
     subprocess.run(
         ["git", "init", "-b", "main"], cwd=workdir, check=True, capture_output=True
     )
     subprocess.run(
-        ["git", "config", "user.email", "demo@kiro-conduit.local"],
+        ["git", "config", "user.email", "demo@lwa-conduit.local"],
         cwd=workdir, check=True, capture_output=True,
     )
     subprocess.run(

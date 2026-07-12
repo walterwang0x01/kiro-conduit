@@ -3,7 +3,7 @@
 
 工作方式：
 - 真子进程，通过 stdin/stdout 跑 JSON-RPC 2.0
-- 收到请求后，按"剧本"（环境变量 KIRO_CONDUIT_MOCK_SCRIPT 指向的 JSON 文件）回响应
+- 收到请求后，按"剧本"（环境变量 LWA_CONDUIT_MOCK_SCRIPT 指向的 JSON 文件）回响应
 - 不调任何 LLM，零 token 消耗
 
 剧本格式（JSON 文件）：
@@ -36,8 +36,8 @@
 }
 
 环境变量：
-- KIRO_CONDUIT_MOCK_SCRIPT: 指向剧本 JSON 文件（必填）
-- KIRO_CONDUIT_MOCK_LOG: 调试日志路径（可选）
+- LWA_CONDUIT_MOCK_SCRIPT: 指向剧本 JSON 文件（必填）
+- LWA_CONDUIT_MOCK_LOG: 调试日志路径（可选）
 """
 
 from __future__ import annotations
@@ -81,13 +81,13 @@ def _maybe_delay(seconds: float) -> None:
 
 
 def main() -> int:
-    script_path = os.environ.get("KIRO_CONDUIT_MOCK_SCRIPT")
+    script_path = os.environ.get("LWA_CONDUIT_MOCK_SCRIPT")
     if not script_path:
-        sys.stderr.write("KIRO_CONDUIT_MOCK_SCRIPT not set\n")
+        sys.stderr.write("LWA_CONDUIT_MOCK_SCRIPT not set\n")
         return 2
 
     log_file: Path | None = None
-    if log_path := os.environ.get("KIRO_CONDUIT_MOCK_LOG"):
+    if log_path := os.environ.get("LWA_CONDUIT_MOCK_LOG"):
         log_file = Path(log_path)
 
     script: dict[str, Any] = json.loads(Path(script_path).read_text(encoding="utf-8"))

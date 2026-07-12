@@ -7,7 +7,7 @@ from textwrap import dedent
 
 import pytest
 
-from kiro_conduit.dag import (
+from lwa_conduit.dag import (
     DagError,
     PhaseType,
     SharedFilePolicy,
@@ -164,7 +164,7 @@ class TestParseSharedFiles:
 
     def test_m1_1_accepts_all_policies(self, tmp_path: Path) -> None:
         """M1.1 step 3 起，append-only / coordinator-only / single-writer 三种都接受。"""
-        from kiro_conduit.dag import SharedFilePolicy
+        from lwa_conduit.dag import SharedFilePolicy
 
         body = """
             phases:
@@ -686,7 +686,7 @@ class TestCrossRepoSchema:
 
     def test_example_cross_repo_dag_loads(self) -> None:
         """examples/dags/cross-repo.yaml 能加载，repos/repo 与波次符合预期。"""
-        from kiro_conduit.dag import topological_waves
+        from lwa_conduit.dag import topological_waves
 
         example = (
             Path(__file__).resolve().parents[2]

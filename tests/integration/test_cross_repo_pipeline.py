@@ -18,11 +18,11 @@ from textwrap import dedent
 
 import pytest
 
-from kiro_conduit.dag import load_workspace
-from kiro_conduit.merge import MergeOrchestrator
-from kiro_conduit.orchestrator import ParallelOrchestrator
-from kiro_conduit.roles.coordinator import CoordinatorOutcome
-from kiro_conduit.types import LayerResult, TaskResult, VerifyLayer, VerifyResult
+from lwa_conduit.dag import load_workspace
+from lwa_conduit.merge import MergeOrchestrator
+from lwa_conduit.orchestrator import ParallelOrchestrator
+from lwa_conduit.roles.coordinator import CoordinatorOutcome
+from lwa_conduit.types import LayerResult, TaskResult, VerifyLayer, VerifyResult
 
 
 def _init_repo(path: Path) -> None:

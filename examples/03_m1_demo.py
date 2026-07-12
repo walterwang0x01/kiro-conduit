@@ -8,7 +8,7 @@
   4. 在 main 上跑全套 pytest 验证一切都通
 
 跑法：
-    cd ~/PycharmProjects/kiro-conduit
+    cd ~/PycharmProjects/lwa-conduit
     .venv/bin/python examples/03_m1_demo.py
 
 注意：会真调 Kiro CLI，约 2-4 分钟（取决于网速 + LLM 速度）。
@@ -28,14 +28,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from kiro_conduit.dag import load_workspace  # noqa: E402
-from kiro_conduit.merge import MergeOrchestrator  # noqa: E402
-from kiro_conduit.orchestrator import ParallelOrchestrator  # noqa: E402
+from lwa_conduit.dag import load_workspace  # noqa: E402
+from lwa_conduit.merge import MergeOrchestrator  # noqa: E402
+from lwa_conduit.orchestrator import ParallelOrchestrator  # noqa: E402
 
 
 def setup_demo_workspace() -> tuple[Path, Path]:
     """建临时 git repo + 拷贝 dag.yaml + specs，返回 (base_repo, dag_yaml_path)。"""
-    workdir = Path(tempfile.mkdtemp(prefix="kiro-conduit-m1-demo-"))
+    workdir = Path(tempfile.mkdtemp(prefix="lwa-conduit-m1-demo-"))
     src_examples = ROOT / "examples"
     shutil.copytree(src_examples / "specs", workdir / "specs")
 
@@ -47,11 +47,11 @@ def setup_demo_workspace() -> tuple[Path, Path]:
 
     subprocess.run(["git", "init", "-b", "main"], cwd=workdir, check=True, capture_output=True)
     subprocess.run(
-        ["git", "config", "user.email", "demo@kiro-conduit.local"],
+        ["git", "config", "user.email", "demo@lwa-conduit.local"],
         cwd=workdir, check=True, capture_output=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "kiro-conduit demo"],
+        ["git", "config", "user.name", "lwa-conduit demo"],
         cwd=workdir, check=True, capture_output=True,
     )
     subprocess.run(["git", "add", "."], cwd=workdir, check=True, capture_output=True)
@@ -129,7 +129,7 @@ async def main() -> int:
         successful_task_ids=successful,
         base_branch="main",
         commit_messages={
-            tid: f"feat({tid}): kiro-conduit M1.0 demo"
+            tid: f"feat({tid}): lwa-conduit M1.0 demo"
             for tid in successful
         },
     )

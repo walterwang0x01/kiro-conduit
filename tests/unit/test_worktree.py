@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from kiro_conduit.worktree import WorktreeError, WorktreeManager
+from lwa_conduit.worktree import WorktreeError, WorktreeManager
 
 
 class TestWorktreeManager:
@@ -16,7 +16,7 @@ class TestWorktreeManager:
             handle = await wm.create("task-a")
             assert handle.task_id == "task-a"
             assert handle.path.is_dir()
-            assert handle.branch == "kiro-conduit/task-a"
+            assert handle.branch == "lwa-conduit/task-a"
             assert (handle.path / "README.md").exists()  # 基础提交里的文件可见
             assert wm.list_active() == [handle]
 
@@ -64,11 +64,11 @@ class TestWorktreeManager:
     @pytest.mark.asyncio
     async def test_residual_branch_recovered(self, tmp_git_repo: Path) -> None:
         """模拟上次跑残留：手动建一个同名分支，再创建 worktree 应该能成功。"""
-        from kiro_conduit.git_utils import run_git
+        from lwa_conduit.git_utils import run_git
 
-        # 制造残留：创建一个 kiro-conduit/recover 分支
+        # 制造残留：创建一个 lwa-conduit/recover 分支
         code, _, _ = await run_git(
-            tmp_git_repo, ["branch", "kiro-conduit/recover"]
+            tmp_git_repo, ["branch", "lwa-conduit/recover"]
         )
         assert code == 0
 
@@ -81,15 +81,15 @@ class TestWorktreeManager:
     async def test_residual_worktree_recovered(self, tmp_git_repo: Path) -> None:
         """模拟上次进程被 kill：worktree 物理目录 + .git 元数据残留，
         再 create 同名 task 应该能先清理再重建成功。"""
-        from kiro_conduit.git_utils import run_git
+        from lwa_conduit.git_utils import run_git
 
-        root = tmp_git_repo / ".kiro-conduit" / "worktrees"
+        root = tmp_git_repo / ".lwa-conduit" / "worktrees"
         root.mkdir(parents=True, exist_ok=True)
         residual = root / "ghost"
         # 制造残留：直接 git worktree add（不经过 manager，模拟上次跑遗留）
         code, _, _ = await run_git(
             tmp_git_repo,
-            ["worktree", "add", str(residual), "-b", "kiro-conduit/ghost", "main"],
+            ["worktree", "add", str(residual), "-b", "lwa-conduit/ghost", "main"],
         )
         assert code == 0
         assert residual.is_dir()
@@ -104,7 +104,7 @@ class TestWorktreeManager:
     async def test_reuse_branch_rebuilds_from_existing(self, tmp_git_repo: Path) -> None:
         """resume 场景：分支已存在且有 commit，进程崩溃（worktree 残留、分支保留），
         新 manager 用 reuse_branch 重建，应能看到分支上的 commit。"""
-        from kiro_conduit.git_utils import run_git
+        from lwa_conduit.git_utils import run_git
 
         # 第一次跑：建 worktree，在分支上 commit 一个文件
         wm1 = WorktreeManager(tmp_git_repo)
@@ -120,7 +120,7 @@ class TestWorktreeManager:
         # 第二次跑（resume）：新 manager，复用已 commit 的分支
         async with WorktreeManager(tmp_git_repo) as wm2:
             rebuilt = await wm2.create("resumed", reuse_branch=True)
-            assert rebuilt.branch == "kiro-conduit/resumed"
+            assert rebuilt.branch == "lwa-conduit/resumed"
             assert (rebuilt.path / "done.txt").read_text() == "passed\n"
 
     @pytest.mark.asyncio

@@ -2,16 +2,16 @@
 
 ## Prerequisites
 
-- PyPI project **`kiro-conduit`** exists under your account
+- PyPI project **`lwa-conduit`** exists under your account
 - **Trusted publishing** configured on PyPI (required for `.github/workflows/release.yml`)
 
 ### Configure PyPI trusted publisher (one-time)
 
-On [pypi.org](https://pypi.org) → **Your projects** → `kiro-conduit` → **Publishing** → **Add a new pending publisher**:
+On [pypi.org](https://pypi.org) → **Your projects** → `lwa-conduit` → **Publishing** → **Add a new pending publisher**:
 
 | Field | Value |
 |-------|-------|
-| PyPI project name | `kiro-conduit` |
+| PyPI project name | `lwa-conduit` |
 | Owner | `walterwang0x01` |
 | Repository name | `lwa-conduit` |
 | Workflow name | `release.yml` |
@@ -40,7 +40,7 @@ TWINE_USERNAME=__token__ TWINE_PASSWORD=pypi-... python -m twine upload dist/*
    - `workflow_dispatch` default: build only
    - `workflow_dispatch` with `publish_to_pypi=true`: build + publish
 5. Even if PyPI publish fails, the workflow now uploads `dist/*` as:
-   - a GitHub Actions artifact: `kiro-conduit-dist`
+   - a GitHub Actions artifact: `lwa-conduit-dist`
    - GitHub Release assets on the tag release
 
 This means trusted publishing misconfiguration no longer blocks users from downloading
@@ -74,10 +74,10 @@ gh workflow run release.yml -f publish_to_pypi=true
 
 ```bash
 # Recommended
-pipx install kiro-conduit
+pipx install lwa-conduit
 
 # Or venv
-pip install kiro-conduit
+pip install lwa-conduit
 
 # From source
 pip install 'git+https://github.com/walterwang0x01/lwa-conduit.git@v0.1.0'
@@ -86,14 +86,14 @@ pip install 'git+https://github.com/walterwang0x01/lwa-conduit.git@v0.1.0'
 Verify:
 
 ```bash
-kiro-conduit --help
-kiro-conduit report --quota-only
+lwa-conduit --help
+lwa-conduit report --quota-only
 ```
 
 ## If PyPI still fails
 
 1. Open the failed `Release` workflow run
-2. Download artifact `kiro-conduit-dist`, or fetch the files from the GitHub Release assets
+2. Download artifact `lwa-conduit-dist`, or fetch the files from the GitHub Release assets
 3. After fixing trusted publishing, either:
    - re-run the workflow, or
    - upload the saved `dist/*` manually with `twine`

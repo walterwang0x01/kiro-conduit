@@ -7,7 +7,7 @@ Demo 任务：
     Verifier 跑 `pytest -q` 验证。
 
 跑法：
-    cd ~/PycharmProjects/kiro-conduit
+    cd ~/PycharmProjects/lwa-conduit
     python examples/02_civ_hello.py
 
 预期：
@@ -31,24 +31,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from kiro_conduit.roles import Coordinator, Implementor, Verifier  # noqa: E402
-from kiro_conduit.types import Task  # noqa: E402
+from lwa_conduit.roles import Coordinator, Implementor, Verifier  # noqa: E402
+from lwa_conduit.types import Task  # noqa: E402
 
 
 def setup_test_repo() -> Path:
     """建一个临时 git repo，返回路径。"""
-    workdir = Path(tempfile.mkdtemp(prefix="kiro-conduit-demo-"))
+    workdir = Path(tempfile.mkdtemp(prefix="lwa-conduit-demo-"))
     # 初始化 git，加一个空 README 当 baseline commit
     subprocess.run(["git", "init", "-b", "main"], cwd=workdir, check=True, capture_output=True)
     subprocess.run(
-        ["git", "config", "user.email", "demo@kiro-conduit.local"],
+        ["git", "config", "user.email", "demo@lwa-conduit.local"],
         cwd=workdir, check=True, capture_output=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "kiro-conduit demo"],
+        ["git", "config", "user.name", "lwa-conduit demo"],
         cwd=workdir, check=True, capture_output=True,
     )
-    (workdir / "README.md").write_text("# kiro-conduit demo\n")
+    (workdir / "README.md").write_text("# lwa-conduit demo\n")
     subprocess.run(["git", "add", "."], cwd=workdir, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "initial"],

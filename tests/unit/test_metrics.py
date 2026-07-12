@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from kiro_conduit.metrics import (
+from lwa_conduit.metrics import (
     RuntimeMetricRecord,
     recommend_strategy,
     summarize_metrics,

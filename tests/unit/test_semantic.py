@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from kiro_conduit.semantic import (
+from lwa_conduit.semantic import (
     NoOpSemanticReviewer,
     ReviewContext,
     ReviewResult,
@@ -178,7 +178,7 @@ class TestReviewIntegration:
         git("add", ".")
         git("commit", "-m", "init")
         # 集成分支加一处改动
-        git("checkout", "-b", "kiro-conduit/integration")
+        git("checkout", "-b", "lwa-conduit/integration")
         (repo / "f.py").write_text("x = 1\ny = 2\n")
         git("add", ".")
         git("commit", "-m", "feat")
@@ -196,11 +196,11 @@ class TestReviewIntegration:
                 seen["spec"] = ctx.task_prompt
                 return ReviewResult(passed=False, feedback="发现：缺少类型注解")
 
-        from kiro_conduit.semantic import review_integration
+        from lwa_conduit.semantic import review_integration
 
         result = await review_integration(
             base_repo=repo, base_branch="main",
-            integration_ref="kiro-conduit/integration",
+            integration_ref="lwa-conduit/integration",
             specs_dir=specs, reviewer=_Fake(),
         )
         assert result.passed is False
@@ -232,7 +232,7 @@ class TestReviewIntegration:
                 called["n"] += 1
                 return ReviewResult(passed=False, feedback="should not run")
 
-        from kiro_conduit.semantic import review_integration
+        from lwa_conduit.semantic import review_integration
 
         result = await review_integration(
             base_repo=repo, base_branch="main", integration_ref="main",

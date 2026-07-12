@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from kiro_conduit.acp import AcpClientConfig
+from lwa_conduit.acp import AcpClientConfig
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MOCK_SERVER = REPO_ROOT / "tests" / "fakes" / "mock_acp_server.py"
@@ -45,7 +45,7 @@ def mock_acp_config(tmp_path: Path) -> Callable[[dict[str, Any]], AcpClientConfi
             extra_args=(str(MOCK_SERVER),),
             cwd=tmp_path,
             extra_env={
-                "KIRO_CONDUIT_MOCK_SCRIPT": str(script_path),
+                "LWA_CONDUIT_MOCK_SCRIPT": str(script_path),
             },
             response_timeout=5.0,
         )

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from kiro_conduit.git_utils import collect_diff, list_changed_files, run_git
+from lwa_conduit.git_utils import collect_diff, list_changed_files, run_git
 
 
 class TestRunGit:

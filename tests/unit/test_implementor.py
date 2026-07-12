@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-import kiro_conduit.roles.implementor as impl_mod
-from kiro_conduit.roles.implementor import Implementor
-from kiro_conduit.types import Task
+import lwa_conduit.roles.implementor as impl_mod
+from lwa_conduit.roles.implementor import Implementor
+from lwa_conduit.types import Task
 
 
 def _task(tmp_path: Path) -> Task:
@@ -110,7 +110,7 @@ async def test_retries_on_acp_internal_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _no_sleep: list[float]
 ) -> None:
     """ACP -32603 内部错误视为瞬时：退避重试，第三次成功。"""
-    from kiro_conduit.acp import AcpError
+    from lwa_conduit.acp import AcpError
 
     calls = {"n": 0}
 
@@ -131,7 +131,7 @@ async def test_acp_deterministic_error_fails_gracefully(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _no_sleep: list[float]
 ) -> None:
     """ACP -32601(方法不存在)是确定性错误：不重试，但优雅判失败而非崩。"""
-    from kiro_conduit.acp import AcpError
+    from lwa_conduit.acp import AcpError
 
     calls = {"n": 0}
 
@@ -155,11 +155,11 @@ async def test_start_log_includes_model(
         return ["ok"]
 
     monkeypatch.setattr(Implementor, "_run_acp", ok)
-    with caplog.at_level("INFO", logger="kiro_conduit.roles.implementor"):
+    with caplog.at_level("INFO", logger="lwa_conduit.roles.implementor"):
         await Implementor(model="claude-haiku-4.5").run(_task(tmp_path))
     assert "model=claude-haiku-4.5" in caplog.text
 
     caplog.clear()
-    with caplog.at_level("INFO", logger="kiro_conduit.roles.implementor"):
+    with caplog.at_level("INFO", logger="lwa_conduit.roles.implementor"):
         await Implementor().run(_task(tmp_path))  # 没指定 → <default>
     assert "model=<default>" in caplog.text

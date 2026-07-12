@@ -10,8 +10,8 @@
 
 from __future__ import annotations
 
-from kiro_conduit.acp.client import AcpClient
-from kiro_conduit.acp.messages import (
+from lwa_conduit.acp.client import AcpClient
+from lwa_conduit.acp.messages import (
     AgentMessageChunk,
     AgentThoughtChunk,
     ToolCallEvent,

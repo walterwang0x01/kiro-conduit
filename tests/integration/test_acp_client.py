@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from kiro_conduit.acp import (
+from lwa_conduit.acp import (
     AcpClient,
     AcpClientConfig,
     AgentMessageChunk,

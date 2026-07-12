@@ -1,4 +1,4 @@
-"""单元测试：CLI（kiro_conduit.cli）。
+"""单元测试：CLI（lwa_conduit.cli）。
 
 不调真 Kiro：monkeypatch ParallelOrchestrator.run / MergeOrchestrator.merge。
 """
@@ -11,16 +11,16 @@ from textwrap import dedent
 
 import pytest
 
-from kiro_conduit.cli import (
+from lwa_conduit.cli import (
     _resolve_dag,
     _venv_path_prepend,
     _warn_unowned_shared_files,
     main,
 )
-from kiro_conduit.merge import MergeOrchestrator, MergeReport, TaskMergeResult
-from kiro_conduit.orchestrator import ParallelOrchestrator, ParallelRunReport
-from kiro_conduit.roles.coordinator import CoordinatorOutcome
-from kiro_conduit.types import LayerResult, TaskResult, VerifyLayer, VerifyResult
+from lwa_conduit.merge import MergeOrchestrator, MergeReport, TaskMergeResult
+from lwa_conduit.orchestrator import ParallelOrchestrator, ParallelRunReport
+from lwa_conduit.roles.coordinator import CoordinatorOutcome
+from lwa_conduit.types import LayerResult, TaskResult, VerifyLayer, VerifyResult
 
 
 def _write_ws(tmp_path: Path) -> Path:
@@ -70,9 +70,9 @@ class TestPlanCommand:
     def test_plan_generates_workspace(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from kiro_conduit import planner as planner_mod
-        from kiro_conduit.dag import load_workspace, topological_waves
-        from kiro_conduit.planner import TaskPlan
+        from lwa_conduit import planner as planner_mod
+        from lwa_conduit.dag import load_workspace, topological_waves
+        from lwa_conduit.planner import TaskPlan
 
         spec = tmp_path / "spec.md"
         spec.write_text("build a small util lib", encoding="utf-8")
@@ -93,7 +93,7 @@ class TestPlanCommand:
         assert set(ws.tasks) == {"a", "b"}
         assert topological_waves(ws) == [["a"], ["b"]]
         assert (out / "specs" / "a.md").read_text().startswith("build a")
-        assert (out / ".kiro-conduit" / "runtime-metrics.json").is_file()
+        assert (out / ".lwa-conduit" / "runtime-metrics.json").is_file()
 
     def test_plan_missing_spec_errors(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit, match="spec file not found"):
@@ -102,10 +102,10 @@ class TestPlanCommand:
 
 class TestRunGuardsAndLog:
     def _prior_state(self, ws: Path) -> None:
-        from kiro_conduit.run_state import RunState, TaskRunStatus, save_state, state_path
+        from lwa_conduit.run_state import RunState, TaskRunStatus, save_state, state_path
 
         st = RunState(base_branch="main")
-        st.record("t1", TaskRunStatus.PASSED, branch="kiro-conduit/t1", attempts=1)
+        st.record("t1", TaskRunStatus.PASSED, branch="lwa-conduit/t1", attempts=1)
         save_state(state_path(ws.resolve()), st)
 
     def test_bare_rerun_with_prior_state_blocked(
@@ -150,8 +150,8 @@ class TestRunGuardsAndLog:
 
         monkeypatch.setattr(ParallelOrchestrator, "run", fake_run)
         main(["run", "--workspace", str(ws)])
-        assert (ws / ".kiro-conduit" / "run.log").is_file()
-        assert (ws / ".kiro-conduit" / "runtime-metrics.json").is_file()
+        assert (ws / ".lwa-conduit" / "run.log").is_file()
+        assert (ws / ".lwa-conduit" / "runtime-metrics.json").is_file()
 
 
 class TestResolveDag:
@@ -209,7 +209,7 @@ class TestMain:
 
     def test_report_reads_metrics_file(self, tmp_path: Path) -> None:
         ws = _write_ws(tmp_path)
-        metrics_dir = ws / ".kiro-conduit"
+        metrics_dir = ws / ".lwa-conduit"
         metrics_dir.mkdir(exist_ok=True)
         (metrics_dir / "runtime-metrics.json").write_text(
             dedent(
@@ -239,7 +239,7 @@ class TestMain:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         ws = _write_ws(tmp_path)
-        metrics_dir = ws / ".kiro-conduit"
+        metrics_dir = ws / ".lwa-conduit"
         metrics_dir.mkdir(exist_ok=True)
         (metrics_dir / "runtime-metrics.json").write_text(
             dedent(
@@ -311,7 +311,7 @@ class TestMain:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         ws = _write_ws(tmp_path)
-        metrics_dir = ws / ".kiro-conduit"
+        metrics_dir = ws / ".lwa-conduit"
         metrics_dir.mkdir(exist_ok=True)
         (metrics_dir / "runtime-metrics.json").write_text(
             dedent(
@@ -372,13 +372,13 @@ class TestMain:
     def test_plan_apply_aggressive_uses_planner_bucket(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from kiro_conduit import planner as planner_mod
-        from kiro_conduit.planner import TaskPlan
+        from lwa_conduit import planner as planner_mod
+        from lwa_conduit.planner import TaskPlan
 
         spec = tmp_path / "spec.md"
         spec.write_text("planner bucket", encoding="utf-8")
         out = tmp_path / "ws"
-        metrics_dir = out / ".kiro-conduit"
+        metrics_dir = out / ".lwa-conduit"
         metrics_dir.mkdir(parents=True, exist_ok=True)
         (metrics_dir / "runtime-metrics.json").write_text(
             dedent(
@@ -434,7 +434,7 @@ class TestMain:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         ws = _write_ws(tmp_path)
-        metrics_dir = ws / ".kiro-conduit"
+        metrics_dir = ws / ".lwa-conduit"
         metrics_dir.mkdir(exist_ok=True)
         (metrics_dir / "runtime-metrics.json").write_text(
             dedent(
@@ -474,7 +474,7 @@ class TestMain:
                 outcomes={"t1": _passing("t1")}, skipped=(), handles={}
             )
 
-        from kiro_conduit.semantic import KiroSemanticReviewer
+        from lwa_conduit.semantic import KiroSemanticReviewer
 
         def capture_reviewer_init(self, *a, **k):  # type: ignore[no-untyped-def]
             runtime = k.get("runtime") or (a[0] if a else None)
@@ -640,7 +640,7 @@ class TestReviewFlag:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # --review-tasks 显式开启每任务语义审 → orchestrator 拿到 KiroSemanticReviewer
-        from kiro_conduit.semantic import KiroSemanticReviewer
+        from lwa_conduit.semantic import KiroSemanticReviewer
 
         r = self._spy_reviewer(monkeypatch, _write_ws(tmp_path), ["--review-tasks"])
         assert isinstance(r, KiroSemanticReviewer)
@@ -669,8 +669,8 @@ class TestIntegrationCheck:
 
     @pytest.mark.asyncio
     async def test_passing_command_returns_true(self, tmp_path: Path) -> None:
-        from kiro_conduit.cli import _integration_check
-        from kiro_conduit.dag import Workspace
+        from lwa_conduit.cli import _integration_check
+        from lwa_conduit.dag import Workspace
 
         repo = self._repo(tmp_path)
         ws = Workspace(phases=(), tasks={}, shared_files=(), workspace_root=repo,
@@ -679,8 +679,8 @@ class TestIntegrationCheck:
 
     @pytest.mark.asyncio
     async def test_failing_command_returns_false(self, tmp_path: Path) -> None:
-        from kiro_conduit.cli import _integration_check
-        from kiro_conduit.dag import Workspace
+        from lwa_conduit.cli import _integration_check
+        from lwa_conduit.dag import Workspace
 
         repo = self._repo(tmp_path)
         ws = Workspace(phases=(), tasks={}, shared_files=(), workspace_root=repo,
@@ -689,8 +689,8 @@ class TestIntegrationCheck:
 
     @pytest.mark.asyncio
     async def test_none_when_unset(self, tmp_path: Path) -> None:
-        from kiro_conduit.cli import _integration_check
-        from kiro_conduit.dag import Workspace
+        from lwa_conduit.cli import _integration_check
+        from lwa_conduit.dag import Workspace
 
         repo = self._repo(tmp_path)
         ws = Workspace(phases=(), tasks={}, shared_files=(), workspace_root=repo)
@@ -712,7 +712,7 @@ class TestDirtyOverlapWarning:
         return repo
 
     def _ws(self, owned: list[str]) -> object:
-        from kiro_conduit.dag import TaskDef, Workspace
+        from lwa_conduit.dag import TaskDef, Workspace
         return Workspace(
             phases=(), tasks={"t1": TaskDef(id="t1", spec="s", files_owned=tuple(owned))},
             shared_files=(), workspace_root=Path("."),
@@ -722,7 +722,7 @@ class TestDirtyOverlapWarning:
     async def test_warns_on_overlap(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from kiro_conduit.cli import _warn_if_dirty_overlap
+        from lwa_conduit.cli import _warn_if_dirty_overlap
         repo = self._repo(tmp_path)
         (repo / "a.py").write_text("x=2\n")  # 脏改 a.py
         await _warn_if_dirty_overlap(self._ws(["a.py"]), repo)  # 任务也拥有 a.py
@@ -733,7 +733,7 @@ class TestDirtyOverlapWarning:
     async def test_no_warn_without_overlap(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from kiro_conduit.cli import _warn_if_dirty_overlap
+        from lwa_conduit.cli import _warn_if_dirty_overlap
         repo = self._repo(tmp_path)
         (repo / "a.py").write_text("x=2\n")  # 脏 a.py
         await _warn_if_dirty_overlap(self._ws(["b.py"]), repo)  # 任务拥有 b.py，不重叠
@@ -757,7 +757,7 @@ class TestUnownedSharedFileWarning:
     """合并前预警：被 ≥2 个任务创建却无 owner 的文件（如 db.py）。"""
 
     def _ws(self, tmp_path: Path):  # type: ignore[no-untyped-def]
-        from kiro_conduit.dag import load_workspace
+        from lwa_conduit.dag import load_workspace
 
         ws_dir = tmp_path / "ws"
         (ws_dir / "specs").mkdir(parents=True)

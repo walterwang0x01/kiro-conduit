@@ -6,7 +6,7 @@ from textwrap import dedent
 
 import pytest
 
-from kiro_conduit.contracts import (
+from lwa_conduit.contracts import (
     ContractDiff,
     diff_signatures,
     extract_signatures,

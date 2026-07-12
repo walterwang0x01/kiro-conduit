@@ -1,6 +1,6 @@
 # 系统总览：Conduit 在 LWA 中的角色
 
-**Lark Local Agent Workbench（LWA）** 由 **Bridge（lark-kiro-bridge）** 与 **Conduit（kiro-conduit）** 组成。本文说明 Conduit 在整个体系里的位置与用法。
+**Lark Local Agent Workbench（LWA）** 由 **Bridge（lark-kiro-bridge）** 与 **Conduit（lwa-conduit）** 组成。本文说明 Conduit 在整个体系里的位置与用法。
 
 这份文档不讨论实现细节，而是帮助读者快速理解：
 
@@ -10,7 +10,7 @@
 
 ## 定位
 
-**Conduit（kiro-conduit）** 是一个面向大 spec 的并行编排器，不是普通聊天入口。
+**Conduit（lwa-conduit）** 是一个面向大 spec 的并行编排器，不是普通聊天入口。
 
 它的职责是：
 
@@ -23,11 +23,11 @@
 ## 在 LWA 中的位置
 
 - **Bridge（lark-kiro-bridge）** 负责飞书入口与交互式体验
-- **Conduit（kiro-conduit）** 负责长任务、并行、角色隔离和编排
+- **Conduit（lwa-conduit）** 负责长任务、并行、角色隔离和编排
 
 如果说 Bridge 解决的是“怎么在本机上把 Agent 用起来”，那 Conduit 解决的是“怎么把一个大任务拆开并稳定执行完”。
 
-飞书里可通过 Bridge 的 `/conduit` 命令触发 Conduit；也可在终端直接运行 `kiro-conduit`。
+飞书里可通过 Bridge 的 `/conduit` 命令触发 Conduit；也可在终端直接运行 `lwa-conduit`。
 
 ## 为什么现在支持多 CLI
 
@@ -59,7 +59,7 @@ reviewer 有两个概念：
 ## 推荐生产用法
 
 ```bash
-kiro-conduit run \
+lwa-conduit run \
   --workspace my-workspace/ \
   --runtime-kind cursor-agent-cli \
   --kiro-cli agent \

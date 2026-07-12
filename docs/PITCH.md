@@ -2,7 +2,7 @@
 
 > 30 秒版本：**把大 spec 拆成 DAG，多个本地 Agent CLI 在 worktree 里按角色并行干活，最后串行 merge。**
 
-**Conduit（kiro-conduit）** 是 **Lark Local Agent Workbench（LWA）** 的 DAG 编排与角色执行层；飞书入口由 **Bridge（lark-kiro-bridge）** 提供。
+**Conduit（lwa-conduit）** 是 **Lark Local Agent Workbench（LWA）** 的 DAG 编排与角色执行层；飞书入口由 **Bridge（lark-kiro-bridge）** 提供。
 
 ## 解决什么问题
 
@@ -29,8 +29,8 @@ Conduit 自动化这条链路：spec → DAG → 并行 implementor → verifier
 ## 快速开始
 
 ```bash
-pipx install kiro-conduit
-kiro-conduit run \
+pipx install lwa-conduit
+lwa-conduit run \
   --workspace my-workspace/ \
   --runtime-kind cursor-agent-cli \
   --reviewer-runtime-kind kiro-cli-acp \

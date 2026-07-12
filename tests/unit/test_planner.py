@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from kiro_conduit.dag import load_workspace, topological_waves
-from kiro_conduit.planner import (
+from lwa_conduit.dag import load_workspace, topological_waves
+from lwa_conduit.planner import (
     PLAN_PROMPT,
     PlanError,
     TaskPlan,
@@ -161,7 +161,7 @@ class TestPlanValidationAndRepair:
     """plan_validation_error 纯校验 + KiroPlanner 自动修复重试。"""
 
     def test_validation_detects_overlap(self) -> None:
-        from kiro_conduit.planner import plan_validation_error
+        from lwa_conduit.planner import plan_validation_error
         tasks = [
             TaskPlan(id="a", prompt="a", files_owned=["src/x.py"]),
             TaskPlan(id="b", prompt="b", files_owned=["src/x.py"]),
@@ -170,7 +170,7 @@ class TestPlanValidationAndRepair:
         assert err is not None and "src/x.py" in err
 
     def test_validation_detects_cycle(self) -> None:
-        from kiro_conduit.planner import plan_validation_error
+        from lwa_conduit.planner import plan_validation_error
         tasks = [
             TaskPlan(id="a", prompt="a", depends_on=["b"]),
             TaskPlan(id="b", prompt="b", depends_on=["a"]),
@@ -178,7 +178,7 @@ class TestPlanValidationAndRepair:
         assert plan_validation_error(tasks) is not None
 
     def test_validation_passes_clean(self) -> None:
-        from kiro_conduit.planner import plan_validation_error
+        from lwa_conduit.planner import plan_validation_error
         tasks = [
             TaskPlan(id="a", prompt="a", files_owned=["src/a.py"]),
             TaskPlan(id="b", prompt="b", files_owned=["src/b.py"], depends_on=["a"]),
@@ -190,7 +190,7 @@ class TestPlanValidationAndRepair:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """首拆 files_owned 重叠 → 自动把错误喂回、第二次拆干净 → 返回修好的。"""
-        from kiro_conduit.planner import KiroPlanner
+        from lwa_conduit.planner import KiroPlanner
 
         bad = '{"tasks":[{"id":"a","prompt":"a","files_owned":["src/x.py"]},' \
               '{"id":"b","prompt":"b","files_owned":["src/x.py"]}]}'
@@ -214,7 +214,7 @@ class TestParseEvaluation:
     """parse_evaluation 纯解析（不调 LLM）。"""
 
     def test_parses_full_evaluation(self) -> None:
-        from kiro_conduit.planner import parse_evaluation
+        from lwa_conduit.planner import parse_evaluation
 
         raw = """```json
 {
@@ -240,7 +240,7 @@ class TestParseEvaluation:
         assert "72" in ev.summary()
 
     def test_parses_minimal_evaluation(self) -> None:
-        from kiro_conduit.planner import parse_evaluation
+        from lwa_conduit.planner import parse_evaluation
 
         raw = '{"score": 85, "dimensions": {}, "must_fix": [], "suggestions": []}'
         ev = parse_evaluation(raw)
@@ -250,7 +250,7 @@ class TestParseEvaluation:
         assert ev.coverage.score == 0
 
     def test_handles_missing_fields_gracefully(self) -> None:
-        from kiro_conduit.planner import parse_evaluation
+        from lwa_conduit.planner import parse_evaluation
 
         raw = '{"score": 60}'
         ev = parse_evaluation(raw)
@@ -259,7 +259,7 @@ class TestParseEvaluation:
         assert ev.needs_repair is False
 
     def test_rejects_non_json(self) -> None:
-        from kiro_conduit.planner import parse_evaluation
+        from lwa_conduit.planner import parse_evaluation
 
         with pytest.raises(PlanError, match="parse plan JSON"):
             parse_evaluation("this is not json")
@@ -273,7 +273,7 @@ class TestSelfEval:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """自评通过（高分 + 无 must_fix）→ 不触发额外修复。"""
-        from kiro_conduit.planner import KiroPlanner
+        from lwa_conduit.planner import KiroPlanner
 
         good_plan = '{"tasks":[{"id":"a","prompt":"build a","files_owned":["src/a.py"]}]}'
         good_eval = '{"score":85,"dimensions":{},"must_fix":[],"suggestions":["可改进"]}'
@@ -299,7 +299,7 @@ class TestSelfEval:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """自评发现 must_fix + 低分 → 触发一次修复。"""
-        from kiro_conduit.planner import KiroPlanner
+        from lwa_conduit.planner import KiroPlanner
 
         plan_v1 = (
             '{"tasks":['
@@ -344,7 +344,7 @@ class TestSelfEval:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """self_eval=False → 跳过自评。"""
-        from kiro_conduit.planner import KiroPlanner
+        from lwa_conduit.planner import KiroPlanner
 
         good_plan = '{"tasks":[{"id":"a","prompt":"build a","files_owned":["src/a.py"]}]}'
         calls: list[str] = []
@@ -365,7 +365,7 @@ class TestSelfEval:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """自评输出不可解析 → 不崩溃，跳过自评继续返回。"""
-        from kiro_conduit.planner import KiroPlanner
+        from lwa_conduit.planner import KiroPlanner
 
         good_plan = '{"tasks":[{"id":"a","prompt":"build a","files_owned":["src/a.py"]}]}'
 
@@ -385,7 +385,7 @@ class TestTasksToJson:
     """_tasks_to_json 辅助函数。"""
 
     def test_round_trips(self) -> None:
-        from kiro_conduit.planner import _tasks_to_json
+        from lwa_conduit.planner import _tasks_to_json
 
         tasks = [
             TaskPlan(id="a", prompt="do a", files_owned=["x.py"], depends_on=["root"]),
@@ -408,8 +408,8 @@ class TestPlannerMemoryInjection:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """有记忆时 plan prompt 应包含失败模式和示例。"""
-        from kiro_conduit.memory import Memory
-        from kiro_conduit.planner import KiroPlanner
+        from lwa_conduit.memory import Memory
+        from lwa_conduit.planner import KiroPlanner
 
         mem = Memory()
         mem.add_failure_pattern(
@@ -442,7 +442,7 @@ class TestPlannerMemoryInjection:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """无记忆时 prompt 不含历史记忆块。"""
-        from kiro_conduit.planner import KiroPlanner
+        from lwa_conduit.planner import KiroPlanner
 
         good_plan = '{"tasks":[{"id":"a","prompt":"build a","files_owned":["src/a.py"]}]}'
         captured_prompts: list[str] = []

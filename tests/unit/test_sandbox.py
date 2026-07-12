@@ -1,4 +1,4 @@
-"""单元测试：OS 写入沙箱包裹（kiro_conduit.sandbox）。
+"""单元测试：OS 写入沙箱包裹（lwa_conduit.sandbox）。
 
 不真起沙箱，只验证 argv 结构 + 无可用工具时原样返回。
 """
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from kiro_conduit import sandbox
+from lwa_conduit import sandbox
 
 
 def test_seatbelt_profile_lists_writable_subpaths(tmp_path: Path) -> None:

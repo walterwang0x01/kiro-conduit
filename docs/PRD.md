@@ -1,4 +1,4 @@
-# PRD：Conduit（kiro-conduit）
+# PRD：Conduit（lwa-conduit）
 
 > 受众：项目维护者 / 早期使用者 / 想了解项目定位的人
 >
@@ -24,7 +24,7 @@
 
 我当时手写了一份"多窗口并行 spec"做调度指引，但这本质是**手动模拟一个并行编排器**——用人脑做 DAG 调度、用约定做共享文件锁、用 stash 做隔离。
 
-**Conduit（kiro-conduit）** 就是把这个手动流程自动化。
+**Conduit（lwa-conduit）** 就是把这个手动流程自动化。
 
 ## 2. 解决什么
 
@@ -34,7 +34,7 @@
 
 具体落到 6 件事：
 
-| # | 用户痛点 | kiro-conduit 提供 |
+| # | 用户痛点 | lwa-conduit 提供 |
 |---|---------|-------------------|
 | 1 | spec 太大，Kiro 一个 session 串行跑跑不完 | spec → DAG 拆解 → 多 worker 并行 |
 | 2 | 多 worktree 改 hub 文件冲突 | 共享文件单一写者机制 + 提前预警 |
@@ -45,7 +45,7 @@
 
 ### 2.2 第一性原则
 
-kiro-conduit 不发明新模式，**严格遵循 2026 年行业共识的 6 大模式**（详见 ARCHITECTURE.md）：
+lwa-conduit 不发明新模式，**严格遵循 2026 年行业共识的 6 大模式**（详见 ARCHITECTURE.md）：
 
 1. Spec-Driven Decomposition
 2. Git Worktree Isolation
@@ -101,7 +101,7 @@ MVP 必须能完成**一次真实演示**：
 
 > 输入大型项目剩余 11 PR 的 master-plan.md
 > ↓
-> kiro-conduit 自动起 4 个并行 worker（Phase B）
+> lwa-conduit 自动起 4 个并行 worker（Phase B）
 > ↓
 > 4 个 PR 各自完成 + 通过 Verifier
 > ↓
@@ -195,7 +195,7 @@ Layer 4: 接口契约校验 —— 检查 stub-first 阶段定义的接口是否
 
 | # | 问题 | 触发时机 |
 |---|------|---------|
-| Q1 | 共享文件锁用文件系统（`.kiro-conduit/locks/`）还是 SQLite？ | M1 实施 |
+| Q1 | 共享文件锁用文件系统（`.lwa-conduit/locks/`）还是 SQLite？ | M1 实施 |
 | Q2 | Coordinator 和 Implementor 用同一个 Kiro CLI 模型还是分开配置？ | M0 PoC 阶段评估 |
 | Q3 | Verifier 的 AI review 用 Kiro CLI 还是直接调 LLM API？ | M1 实施 |
 | Q4 | 跨仓库的 workspace 配置格式（YAML schema）？ | M1 设计 |

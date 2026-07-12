@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from kiro_conduit.roles.coordinator import Coordinator
-from kiro_conduit.types import (
+from lwa_conduit.roles.coordinator import Coordinator
+from lwa_conduit.types import (
     LayerResult,
     Task,
     TaskResult,

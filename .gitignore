@@ -36,7 +36,7 @@ target/
 Cargo.lock
 
 # 项目本地状态（worktree 缓存、运行时数据）
-.kiro-conduit/
+.lwa-conduit/
 /runtime/
 *.local
 

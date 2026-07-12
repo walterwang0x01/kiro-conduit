@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from kiro_conduit.run_state import (
+from lwa_conduit.run_state import (
     RunState,
     TaskRunStatus,
     load_state,
@@ -16,15 +16,15 @@ from kiro_conduit.run_state import (
 class TestRunState:
     def test_record_and_passed_ids(self) -> None:
         rs = RunState(base_branch="main")
-        rs.record("t1", TaskRunStatus.PASSED, branch="kiro-conduit/t1", attempts=1)
-        rs.record("t2", TaskRunStatus.FAILED, branch="kiro-conduit/t2", attempts=3)
+        rs.record("t1", TaskRunStatus.PASSED, branch="lwa-conduit/t1", attempts=1)
+        rs.record("t2", TaskRunStatus.FAILED, branch="lwa-conduit/t2", attempts=3)
         rs.record("t3", TaskRunStatus.SKIPPED)
         assert rs.passed_ids() == {"t1"}
         assert rs.tasks["t2"].attempts == 3
 
     def test_roundtrip_save_load(self, tmp_path: Path) -> None:
         rs = RunState(base_branch="develop")
-        rs.record("t1", TaskRunStatus.PASSED, branch="kiro-conduit/t1", attempts=2)
+        rs.record("t1", TaskRunStatus.PASSED, branch="lwa-conduit/t1", attempts=2)
         p = state_path(tmp_path)
         save_state(p, rs)
         assert p.is_file()
@@ -33,7 +33,7 @@ class TestRunState:
         assert loaded is not None
         assert loaded.base_branch == "develop"
         assert loaded.tasks["t1"].status is TaskRunStatus.PASSED
-        assert loaded.tasks["t1"].branch == "kiro-conduit/t1"
+        assert loaded.tasks["t1"].branch == "lwa-conduit/t1"
         assert loaded.tasks["t1"].attempts == 2
 
     def test_load_missing_returns_none(self, tmp_path: Path) -> None:
@@ -73,7 +73,7 @@ class TestRunStateContextRecovery:
         rs.record(
             "t1",
             TaskRunStatus.FAILED,
-            branch="kiro-conduit/t1",
+            branch="lwa-conduit/t1",
             attempts=2,
             last_failure_feedback="[dynamic failed] test_auth failed: AssertionError",
             last_failed_layer="dynamic",
@@ -106,7 +106,7 @@ class TestRunStateContextRecovery:
         rs.record(
             "t1",
             TaskRunStatus.FAILED,
-            branch="kiro-conduit/t1",
+            branch="lwa-conduit/t1",
             attempts=2,
             last_failure_feedback="contract violation: signature changed",
             last_failed_layer="contract",

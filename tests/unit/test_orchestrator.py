@@ -14,10 +14,10 @@ from textwrap import dedent
 
 import pytest
 
-from kiro_conduit.dag import load_workspace
-from kiro_conduit.orchestrator import ParallelOrchestrator
-from kiro_conduit.roles.coordinator import CoordinatorOutcome
-from kiro_conduit.types import LayerResult, TaskResult, VerifyLayer, VerifyResult
+from lwa_conduit.dag import load_workspace
+from lwa_conduit.orchestrator import ParallelOrchestrator
+from lwa_conduit.roles.coordinator import CoordinatorOutcome
+from lwa_conduit.types import LayerResult, TaskResult, VerifyLayer, VerifyResult
 
 # ---------------------------------------------------------------------------
 # fixtures
@@ -329,8 +329,8 @@ class TestParallelOrchestrator:
         self, real_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """第一次跑 t1 过、t2 挂；resume 第二次应跳过 t1（不重跑），只重跑 t2。"""
-        from kiro_conduit.git_utils import run_git
-        from kiro_conduit.run_state import load_state, state_path
+        from lwa_conduit.git_utils import run_git
+        from lwa_conduit.run_state import load_state, state_path
 
         ws_dir = tmp_path / "ws"
         ws_dir.mkdir()
@@ -443,7 +443,7 @@ class TestParallelOrchestrator:
         self, real_repo: Path, tmp_path: Path
     ) -> None:
         """_commit_task：task 通过后改动被提交到它自己的分支（review/merge 都依赖此）。"""
-        from kiro_conduit.worktree import WorktreeManager
+        from lwa_conduit.worktree import WorktreeManager
 
         ws_dir = tmp_path / "ws"
         ws_dir.mkdir()
@@ -467,7 +467,7 @@ class TestParallelOrchestrator:
             await orch._commit_task(wt)
             # 在 cleanup（会删分支）之前断言：分支上已有提交
             out = subprocess.run(
-                ["git", "show", "kiro-conduit/t1:new.py"],
+                ["git", "show", "lwa-conduit/t1:new.py"],
                 cwd=real_repo, capture_output=True, text=True,
             )
         assert out.returncode == 0
@@ -499,12 +499,12 @@ class TestParallelOrchestrator:
 
         envs = {tid: orch._isolation_env(tid) for tid in ("a", "b", "c")}
         # task-id 注入
-        assert envs["a"]["KIRO_CONDUIT_TASK_ID"] == "a"
+        assert envs["a"]["LWA_CONDUIT_TASK_ID"] == "a"
         # 端口区间按字母序索引递增、互不重叠
-        ports = {tid: int(e["KIRO_CONDUIT_PORT_BASE"]) for tid, e in envs.items()}
+        ports = {tid: int(e["LWA_CONDUIT_PORT_BASE"]) for tid, e in envs.items()}
         assert ports == {"a": 5000, "b": 5100, "c": 5200}
         # scratch 各自独立且已创建
-        scratches = {e["KIRO_CONDUIT_SCRATCH"] for e in envs.values()}
+        scratches = {e["LWA_CONDUIT_SCRATCH"] for e in envs.values()}
         assert len(scratches) == 3
         assert all(Path(s).is_dir() for s in scratches)
         # 确定性：再算一次结果一致
@@ -515,7 +515,7 @@ class TestParallelOrchestrator:
         self, real_repo: Path, tmp_path: Path
     ) -> None:
         """copy_files 声明的本地文件（gitignored）应被拷进 worktree。"""
-        from kiro_conduit.worktree import WorktreeManager
+        from lwa_conduit.worktree import WorktreeManager
 
         # base repo 里放一个 gitignored 的 .env（不提交，不进 worktree 的 tracked 文件）
         (real_repo / ".env").write_text("SECRET=1\n")
@@ -548,7 +548,7 @@ class TestParallelOrchestrator:
         """hang 的 setup（shell 派生子进程）超时应被连根杀、迅速返回，不挂死。"""
         import time
 
-        from kiro_conduit.worktree import WorktreeManager
+        from lwa_conduit.worktree import WorktreeManager
 
         ws_dir = tmp_path / "ws"
         ws_dir.mkdir()
@@ -581,7 +581,7 @@ class TestParallelOrchestrator:
         self, real_repo: Path, tmp_path: Path
     ) -> None:
         """声明 setup 时，在 worktree 里执行该命令（装依赖/生成配置等）。"""
-        from kiro_conduit.worktree import WorktreeManager
+        from lwa_conduit.worktree import WorktreeManager
 
         ws_dir = tmp_path / "ws"
         ws_dir.mkdir()
@@ -609,7 +609,7 @@ class TestParallelOrchestrator:
         self, real_repo: Path, tmp_path: Path
     ) -> None:
         """setup 非 0 退出 → 抛错（作为 task 失败上报）。"""
-        from kiro_conduit.worktree import WorktreeManager
+        from lwa_conduit.worktree import WorktreeManager
 
         ws_dir = tmp_path / "ws"
         ws_dir.mkdir()
@@ -637,8 +637,8 @@ class TestParallelOrchestrator:
         self, real_repo: Path, tmp_path: Path
     ) -> None:
         """依赖的产出应被 merge 进 task 的 worktree（task 站在依赖之上工作）。"""
-        from kiro_conduit.git_utils import run_git
-        from kiro_conduit.worktree import WorktreeManager
+        from lwa_conduit.git_utils import run_git
+        from lwa_conduit.worktree import WorktreeManager
 
         ws_dir = tmp_path / "ws"
         ws_dir.mkdir()
@@ -679,7 +679,7 @@ class TestParallelOrchestrator:
     ) -> None:
         """worktree 里有被 .gitignore 忽略的文件（git add 返回非 0）时，
         仍应提交合法文件，而不是放弃（修复 add-failed→空分支 的 bug）。"""
-        from kiro_conduit.worktree import WorktreeManager
+        from lwa_conduit.worktree import WorktreeManager
 
         ws_dir = tmp_path / "ws"
         ws_dir.mkdir()
@@ -705,12 +705,12 @@ class TestParallelOrchestrator:
             await orch._commit_task(wt)
             # 合法文件应已提交到分支，noise 不在
             out = subprocess.run(
-                ["git", "show", "kiro-conduit/t1:real.py"],
+                ["git", "show", "lwa-conduit/t1:real.py"],
                 cwd=real_repo, capture_output=True, text=True,
             )
             assert out.returncode == 0 and out.stdout == "x = 1\n"
             ignored = subprocess.run(
-                ["git", "show", "kiro-conduit/t1:debug.log"],
+                ["git", "show", "lwa-conduit/t1:debug.log"],
                 cwd=real_repo, capture_output=True, text=True,
             )
             assert ignored.returncode != 0  # 被忽略的文件没进提交
@@ -722,7 +722,7 @@ class TestParallelOrchestrator:
         """中断时不清理：已完成 task 的分支应保留，供 --resume 续跑。"""
         import asyncio
 
-        from kiro_conduit.git_utils import run_git
+        from lwa_conduit.git_utils import run_git
 
         ws_dir = tmp_path / "ws"
         ws_dir.mkdir()
@@ -765,7 +765,7 @@ class TestParallelOrchestrator:
 
         # 中断后 t1 的分支仍在（没被清理）→ resume 可复用
         code, _out, _err = await run_git(
-            real_repo, ["show-ref", "--verify", "--quiet", "refs/heads/kiro-conduit/t1"]
+            real_repo, ["show-ref", "--verify", "--quiet", "refs/heads/lwa-conduit/t1"]
         )
         assert code == 0, "interrupt should keep completed task branch for resume"
 

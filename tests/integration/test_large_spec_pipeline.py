@@ -10,11 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from kiro_conduit.dag import load_workspace
-from kiro_conduit.merge import MergeOrchestrator
-from kiro_conduit.orchestrator import ParallelOrchestrator
-from kiro_conduit.roles.coordinator import CoordinatorOutcome
-from kiro_conduit.types import LayerResult, TaskResult, VerifyLayer, VerifyResult
+from lwa_conduit.dag import load_workspace
+from lwa_conduit.merge import MergeOrchestrator
+from lwa_conduit.orchestrator import ParallelOrchestrator
+from lwa_conduit.roles.coordinator import CoordinatorOutcome
+from lwa_conduit.types import LayerResult, TaskResult, VerifyLayer, VerifyResult
 
 TASK_IDS = [f"t{i:02d}" for i in range(1, 18)]
 

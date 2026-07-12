@@ -7,8 +7,8 @@ from io import StringIO
 
 from rich.console import Console
 
-from kiro_conduit.plan_review import review_plan
-from kiro_conduit.planner import DimensionResult, PlanEvaluation, TaskPlan
+from lwa_conduit.plan_review import review_plan
+from lwa_conduit.planner import DimensionResult, PlanEvaluation, TaskPlan
 
 
 def _make_tasks() -> list[TaskPlan]:

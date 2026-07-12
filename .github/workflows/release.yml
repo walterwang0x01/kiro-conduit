@@ -38,7 +38,7 @@ jobs:
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kiro-conduit-dist
+          name: lwa-conduit-dist
           path: dist/*
 
       - name: Attach dist to GitHub Release
@@ -62,7 +62,7 @@ jobs:
       - name: Download dist artifact
         uses: actions/download-artifact@v4
         with:
-          name: kiro-conduit-dist
+          name: lwa-conduit-dist
           path: dist
 
       - name: Publish to PyPI

@@ -1,4 +1,4 @@
-# Roadmap：Conduit（kiro-conduit）
+# Roadmap：Conduit（lwa-conduit）
 
 > 受众：项目维护者 / 早期贡献者
 >
@@ -30,7 +30,7 @@ M0 PoC          ────►  M1 MVP         ────►  M2 实战      
 ### 必做
 
 - [ ] 项目骨架（pyproject.toml / 目录结构 / 基础 CLI 入口）
-- [ ] ACP 客户端模块（`kiro_conduit/acp/client.py`）
+- [ ] ACP 客户端模块（`lwa_conduit/acp/client.py`）
   - 起 `kiro-cli acp` 子进程
   - JSON-RPC initialize / session/new / session/prompt
   - 解析 streaming 通知（AgentMessageChunk / ToolCall / TurnEnd）
@@ -67,7 +67,7 @@ M0 PoC          ────►  M1 MVP         ────►  M2 实战      
 ```bash
 # 在一个测试 repo 里
 cd test-repo
-kiro-conduit run-poc \
+lwa-conduit run-poc \
     --spec specs/add-hello-endpoint.md \
     --target-dir .
 
@@ -103,7 +103,7 @@ kiro-conduit run-poc \
 
 #### 2. Git Worktree Isolation
 
-- [ ] `kiro_conduit/git/worktree.py`：worktree 创建 / 清理 / 列表
+- [ ] `lwa_conduit/git/worktree.py`：worktree 创建 / 清理 / 列表
 - [ ] 全局 git 锁（防止多 worker 并发跑 fetch / pull）
 - [ ] worker 退出 cleanup hook
 
@@ -115,7 +115,7 @@ kiro-conduit run-poc \
 
 #### 4. 共享文件锁
 
-- [ ] `kiro_conduit/locks/manager.py`：文件锁 / 三种 policy
+- [ ] `lwa_conduit/locks/manager.py`：文件锁 / 三种 policy
 - [ ] Implementor 改共享文件前的 hook（写入前抢锁）
 - [ ] 死锁检测（超时自动释放）
 
@@ -135,7 +135,7 @@ kiro-conduit run-poc \
 
 #### 7. 串行 Merge
 
-- [ ] `kiro_conduit/merge/orchestrator.py`
+- [ ] `lwa_conduit/merge/orchestrator.py`
 - [ ] rebase onto main → merge --no-ff
 - [ ] 文本冲突暂停 + 终端提示用户
 - [ ] merge 后跑集成测试 + 失败回滚
@@ -177,7 +177,7 @@ phases:
 ```
 
 ```bash
-kiro-conduit run --workspace example/
+lwa-conduit run --workspace example/
 ```
 
 **通过条件**：
@@ -246,9 +246,9 @@ kiro-conduit run --workspace example/
 - [ ] 完整的 user guide（`docs/guide/`）
 - [ ] CONTRIBUTING.md
 - [ ] CI（pytest + lint，运行在 GitHub Actions）
-- [ ] PyPI 发布（`pip install kiro-conduit`）
+- [ ] PyPI 发布（`pip install lwa-conduit`）
 - [ ] 公开博客 / 视频
-  - 起源故事："我开 5 个分支两天没合上代码，所以做了 kiro-conduit"
+  - 起源故事："我开 5 个分支两天没合上代码，所以做了 lwa-conduit"
   - 技术解读：CIV 模式 + 6 大并行编排实践
   - Demo：录屏跑通真实 spec
 
@@ -300,4 +300,4 @@ kiro-conduit run --workspace example/
 
 **M0 PoC**：⚪ 待启动（项目骨架刚搭好，文档已就绪）
 
-下一步：写 `pyproject.toml` + 实现 `kiro_conduit/acp/client.py`。
+下一步：写 `pyproject.toml` + 实现 `lwa_conduit/acp/client.py`。

@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from kiro_conduit.roles.verifier import Verifier
-from kiro_conduit.types import Task, TaskResult, VerifyLayer
+from lwa_conduit.roles.verifier import Verifier
+from lwa_conduit.types import Task, TaskResult, VerifyLayer
 
 
 def _make_task(cwd: Path, acceptance: list[str]) -> Task:
@@ -206,7 +206,7 @@ class TestSemanticLayer:
 
     @pytest.mark.asyncio
     async def test_reviewer_passes(self, tmp_path: Path) -> None:
-        from kiro_conduit.semantic import NoOpSemanticReviewer
+        from lwa_conduit.semantic import NoOpSemanticReviewer
 
         task = _make_task(tmp_path, [])
         verifier = Verifier(semantic_reviewer=NoOpSemanticReviewer())
@@ -218,7 +218,7 @@ class TestSemanticLayer:
 
     @pytest.mark.asyncio
     async def test_reviewer_fails(self, tmp_path: Path) -> None:
-        from kiro_conduit.semantic import ReviewContext, ReviewResult
+        from lwa_conduit.semantic import ReviewContext, ReviewResult
 
         class _AlwaysFail:
             async def review(self, ctx: ReviewContext) -> ReviewResult:
@@ -234,7 +234,7 @@ class TestSemanticLayer:
     @pytest.mark.asyncio
     async def test_semantic_skipped_when_static_failed(self, tmp_path: Path) -> None:
         """Earlier layer 挂了 Layer 3 不该跑。"""
-        from kiro_conduit.semantic import ReviewContext, ReviewResult
+        from lwa_conduit.semantic import ReviewContext, ReviewResult
 
         called = False
 
@@ -256,7 +256,7 @@ class TestSemanticLayer:
     @pytest.mark.asyncio
     async def test_semantic_failure_skips_contract(self, tmp_path: Path) -> None:
         """Layer 3 挂了 Layer 4 也该 skip。"""
-        from kiro_conduit.semantic import ReviewContext, ReviewResult
+        from lwa_conduit.semantic import ReviewContext, ReviewResult
 
         class _AlwaysFail:
             async def review(self, ctx: ReviewContext) -> ReviewResult:

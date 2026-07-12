@@ -8,9 +8,9 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-from kiro_conduit.dag import load_workspace
-from kiro_conduit.dashboard import Dashboard
-from kiro_conduit.events import (
+from lwa_conduit.dag import load_workspace
+from lwa_conduit.dashboard import Dashboard
+from lwa_conduit.events import (
     EventBus,
     LockEvent,
     MergeFinished,
@@ -253,7 +253,7 @@ class TestDashboardRender:
         # 把当前 render 写进 console，验证含关键字
         console.print(db.render())
         out = console.file.getvalue()
-        assert "kiro-conduit dashboard" in out
+        assert "lwa-conduit dashboard" in out
         assert "t1" in out
         assert "src/x.py" in out
 

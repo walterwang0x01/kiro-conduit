@@ -6,9 +6,9 @@ KiroSemanticReviewer 的 model 参数能正确穿透到 AcpClientConfig。
 
 from __future__ import annotations
 
-from kiro_conduit.acp import AcpClientConfig
-from kiro_conduit.roles.implementor import Implementor
-from kiro_conduit.semantic import KiroSemanticReviewer
+from lwa_conduit.acp import AcpClientConfig
+from lwa_conduit.roles.implementor import Implementor
+from lwa_conduit.semantic import KiroSemanticReviewer
 
 
 class TestAcpClientConfigModel:

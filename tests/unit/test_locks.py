@@ -8,8 +8,8 @@ from textwrap import dedent
 
 import pytest
 
-from kiro_conduit.dag import load_workspace
-from kiro_conduit.locks import LockError, SharedFileLockManager
+from lwa_conduit.dag import load_workspace
+from lwa_conduit.locks import LockError, SharedFileLockManager
 
 
 def _make_workspace_with_shared_file(tmp_path: Path):
@@ -51,7 +51,7 @@ class TestAcquire:
         ws = _make_workspace_with_shared_file(tmp_path)
         lm = SharedFileLockManager(ws, tmp_path)
 
-        lock_file = tmp_path / ".kiro-conduit" / "locks" / "src__shared.py.lock"
+        lock_file = tmp_path / ".lwa-conduit" / "locks" / "src__shared.py.lock"
 
         async with lm.acquire("src/shared.py", "t1"):
             assert lock_file.exists()
@@ -118,7 +118,7 @@ class TestConstructor:
     def test_locks_dir_created(self, tmp_path: Path) -> None:
         ws = _make_workspace_with_shared_file(tmp_path)
         SharedFileLockManager(ws, tmp_path)
-        assert (tmp_path / ".kiro-conduit" / "locks").is_dir()
+        assert (tmp_path / ".lwa-conduit" / "locks").is_dir()
 
 
 # --- M1.1 step 3: 新 policy 测试 -------------------------------------------

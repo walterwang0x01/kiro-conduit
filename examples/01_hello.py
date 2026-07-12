@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """最小 demo：起 1 个 kiro-cli acp 子进程，发一条 prompt，看到流式响应。
 
-这是 M0 PoC 的第一个里程碑——证明 kiro-conduit 的 ACP 通信骨架能跑通。
+这是 M0 PoC 的第一个里程碑——证明 lwa-conduit 的 ACP 通信骨架能跑通。
 
 跑法：
-    cd ~/PycharmProjects/kiro-conduit
+    cd ~/PycharmProjects/lwa-conduit
     python examples/01_hello.py
 
 预期：
@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from kiro_conduit.acp import (  # noqa: E402
+from lwa_conduit.acp import (  # noqa: E402
     AcpClient,
     AcpClientConfig,
     AgentMessageChunk,

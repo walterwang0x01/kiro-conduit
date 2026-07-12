@@ -1,4 +1,4 @@
-# 架构：Conduit（kiro-conduit）
+# 架构：Conduit（lwa-conduit）
 
 > 受众：项目实现者 / 想读懂代码的人 / 想改架构的人
 >
@@ -37,7 +37,7 @@
 │   │ git worktree (自己的工作目录)                                │   │
 │   │ kiro-cli acp 子进程 (自己的 cwd + session)                   │   │
 │   │ 任务上下文：                                                 │   │
-│   │   - 瘦身后的 spec 视图（.kiro-conduit/task.md）              │   │
+│   │   - 瘦身后的 spec 视图（.lwa-conduit/task.md）              │   │
 │   │   - 文件归属清单（哪些归我）                                 │   │
 │   │   - 共享文件锁查询接口                                       │   │
 │   └─────────────────────────────────────────────────────────────┘   │
@@ -189,8 +189,8 @@ shared_files:
 ```
 
 **关键代码点**：
-- `kiro_conduit/spec/parser.py` —— 解析 master-plan + dag.yaml
-- `kiro_conduit/spec/validator.py` —— 校验 DAG 无环、共享文件清单完整、接口锁定声明合法
+- `lwa_conduit/spec/parser.py` —— 解析 master-plan + dag.yaml
+- `lwa_conduit/spec/validator.py` —— 校验 DAG 无环、共享文件清单完整、接口锁定声明合法
 
 **反面案例**：
 - ❌ 让 LLM 自动从 markdown 推断 DAG（不可控）
@@ -203,8 +203,8 @@ shared_files:
 
 ```python
 def create_worktree(task_id: str, base_branch: str = "main") -> Path:
-    worktree_path = Path(".kiro-conduit/worktrees") / task_id
-    branch = f"kiro-conduit/{task_id}"
+    worktree_path = Path(".lwa-conduit/worktrees") / task_id
+    branch = f"lwa-conduit/{task_id}"
     subprocess.run(
         ["git", "worktree", "add", str(worktree_path), "-b", branch, base_branch],
         check=True,
@@ -215,7 +215,7 @@ def create_worktree(task_id: str, base_branch: str = "main") -> Path:
 每个 Implementor 启动 `kiro-cli acp` 时设 cwd 为这个 worktree 路径。
 
 **关键代码点**：
-- `kiro_conduit/git/worktree.py` —— worktree 创建 / 清理 / 列表
+- `lwa_conduit/git/worktree.py` —— worktree 创建 / 清理 / 列表
 - 注意：**串行化 git 操作**，多 worker 同时跑 `git fetch` 会损坏 metadata
 
 **坑**：
@@ -232,9 +232,9 @@ def create_worktree(task_id: str, base_branch: str = "main") -> Path:
 见 §2，不重复。
 
 实现位置：
-- `kiro_conduit/roles/coordinator.py`
-- `kiro_conduit/roles/implementor.py`
-- `kiro_conduit/roles/verifier.py`
+- `lwa_conduit/roles/coordinator.py`
+- `lwa_conduit/roles/implementor.py`
+- `lwa_conduit/roles/verifier.py`
 
 通信协议（结构化 JSON over stdin/stdout）：
 
@@ -296,7 +296,7 @@ subprocess.Popen(
 ```
 
 **关键代码点**：
-- `kiro_conduit/config/models.yaml` —— 角色 → 模型映射，可被用户覆盖
+- `lwa_conduit/config/models.yaml` —— 角色 → 模型映射，可被用户覆盖
 
 **反面案例**：
 - ❌ 全部用 opus（5-15x token 成本爆炸）
@@ -334,7 +334,7 @@ class Verifier:
 ```
 
 **关键代码点**：
-- `kiro_conduit/verifier/static.py` / `dynamic.py` / `semantic.py` / `contract.py`
+- `lwa_conduit/verifier/static.py` / `dynamic.py` / `semantic.py` / `contract.py`
 - 每个 Layer 独立模块，方便禁用 / 替换
 
 **反面案例**：
@@ -351,7 +351,7 @@ def merge_completed_tasks(dag: DAG) -> None:
         if task.status != "verified":
             continue
 
-        branch = f"kiro-conduit/{task.id}"
+        branch = f"lwa-conduit/{task.id}"
 
         # 1. rebase onto latest main
         run(["git", "checkout", branch])
@@ -373,7 +373,7 @@ def merge_completed_tasks(dag: DAG) -> None:
 ```
 
 **关键代码点**：
-- `kiro_conduit/merge/orchestrator.py`
+- `lwa_conduit/merge/orchestrator.py`
 - 不要并行 merge，**串行 + rebase 是定论**
 
 **反面案例**：
@@ -387,7 +387,7 @@ def merge_completed_tasks(dag: DAG) -> None:
 ### 4.1 锁的实现
 
 ```
-.kiro-conduit/
+.lwa-conduit/
 └── locks/
     ├── app__agent_pay__constants.py.lock     # 文件名转义后做锁文件
     └── app__main.py.lock
@@ -429,7 +429,7 @@ def write_shared_file(task_id, file_path, content):
         release_lock(lock)
 ```
 
-**关键代码点**：`kiro_conduit/locks/manager.py`
+**关键代码点**：`lwa_conduit/locks/manager.py`
 
 ## 5. 接口锁定（Stub-First）
 
@@ -477,7 +477,7 @@ def check_contracts(task, diff):
 ## 6. 模块结构
 
 ```
-kiro_conduit/
+lwa_conduit/
 ├── __init__.py
 ├── cli.py                    # 命令行入口
 │
