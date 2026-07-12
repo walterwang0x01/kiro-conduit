@@ -451,10 +451,12 @@ async def _run_parallel(
     ws: Workspace,
     bus: EventBus | None,
     base_branch: str,
+    *,
+    dashboard: bool = False,
 ) -> ParallelRunReport:
-    if bus is None:
+    if bus is None or not dashboard:
         return await orch.run(base_branch=base_branch)
-    # dashboard 模式：rich.live 实时渲染
+    # dashboard 模式：rich.live 实时渲染（EventBus 仍可同时挂 NDJSON writer）
     from lwa_conduit.dashboard import Dashboard
 
     dash = Dashboard(workspace=ws)
@@ -527,7 +529,16 @@ async def _run(args: argparse.Namespace) -> int:
         summary += f", repos: {sorted(ws.repos)}"
     print(summary)
 
-    bus = EventBus() if args.dashboard else None
+    events_mode = getattr(args, "events", "none")
+    need_bus = bool(args.dashboard) or events_mode != "none"
+    bus = EventBus() if need_bus else None
+    ndjson_writer = None
+    if bus is not None and events_mode == "ndjson":
+        from lwa_conduit.event_export import NdjsonEventWriter
+
+        ndjson_writer = NdjsonEventWriter()
+        ndjson_writer.attach(bus)
+        print("  events: ndjson → stderr")
     if args.review:
         print("  semantic review: ON（合并后对集成结果对照 spec 初审）")
     task_reviewer = None
@@ -567,52 +578,58 @@ async def _run(args: argparse.Namespace) -> int:
         sandbox=args.sandbox,
     )
 
-    report = await _run_parallel(orch, ws, bus, base_branch)
-    _print_parallel_report(ws, report)
-    current_metrics = _collect_runtime_metrics(report, bucket="implementor")
-    current_metrics.extend(_collect_reviewer_metrics(report))
-    all_metrics_path = metrics_path(base_repo)
-    all_metrics = prior_metrics + current_metrics
-    save_metrics(all_metrics_path, all_metrics)
-    _print_runtime_metrics_report(all_metrics)
-
-    successful = {tid for tid, out in report.outcomes.items() if out.passed}
-
-    if not args.merge:
-        # 默认：产出分支供 review，不自动合并（review-and-accept）
-        _print_review_hint(report, base_branch)
-        return 0 if report.all_passed else 1
-
-    if not successful:
-        print("\n✗ 没有任何任务通过，无可合并")
-        return 1
-
-    _warn_unowned_shared_files(ws, report)
-
-    # 即便部分任务失败/跳过，也把已通过的组装进 lwa-conduit/integration，
-    # 给一个可 review / 可用的集成结果（而不是因一个失败丢掉全部成果）。
-    merger = MergeOrchestrator(ws, base_repo, event_bus=bus, diagnose=args.diagnose)
-    merge_report = await merger.merge(
-        handles=report.handles,
-        successful_task_ids=successful,
-        base_branch=base_branch,
-    )
-    _print_merge_report(merge_report)
-    if args.review:
-        review_metric = await _review_integration(
-            args, base_repo, base_branch, dag_path.parent / "specs"
+    try:
+        report = await _run_parallel(
+            orch, ws, bus, base_branch, dashboard=bool(args.dashboard)
         )
-        if review_metric is not None:
-            all_metrics = [*load_metrics(all_metrics_path), review_metric]
-            save_metrics(all_metrics_path, all_metrics)
-            _print_runtime_metrics_report([review_metric])
-    check_ok = await _integration_check(ws, base_repo, base_branch)
-    if not report.all_passed:
-        print(
-            "\n⚠ 部分任务失败/跳过：已把通过的合进 integration，失败项见上方报告。"
+        _print_parallel_report(ws, report)
+        current_metrics = _collect_runtime_metrics(report, bucket="implementor")
+        current_metrics.extend(_collect_reviewer_metrics(report))
+        all_metrics_path = metrics_path(base_repo)
+        all_metrics = prior_metrics + current_metrics
+        save_metrics(all_metrics_path, all_metrics)
+        _print_runtime_metrics_report(all_metrics)
+
+        successful = {tid for tid, out in report.outcomes.items() if out.passed}
+
+        if not args.merge:
+            # 默认：产出分支供 review，不自动合并（review-and-accept）
+            _print_review_hint(report, base_branch)
+            return 0 if report.all_passed else 1
+
+        if not successful:
+            print("\n✗ 没有任何任务通过，无可合并")
+            return 1
+
+        _warn_unowned_shared_files(ws, report)
+
+        # 即便部分任务失败/跳过，也把已通过的组装进 lwa-conduit/integration，
+        # 给一个可 review / 可用的集成结果（而不是因一个失败丢掉全部成果）。
+        merger = MergeOrchestrator(ws, base_repo, event_bus=bus, diagnose=args.diagnose)
+        merge_report = await merger.merge(
+            handles=report.handles,
+            successful_task_ids=successful,
+            base_branch=base_branch,
         )
-    ok = report.all_passed and merge_report.all_merged and check_ok is not False
-    return 0 if ok else 1
+        _print_merge_report(merge_report)
+        if args.review:
+            review_metric = await _review_integration(
+                args, base_repo, base_branch, dag_path.parent / "specs"
+            )
+            if review_metric is not None:
+                all_metrics = [*load_metrics(all_metrics_path), review_metric]
+                save_metrics(all_metrics_path, all_metrics)
+                _print_runtime_metrics_report([review_metric])
+        check_ok = await _integration_check(ws, base_repo, base_branch)
+        if not report.all_passed:
+            print(
+                "\n⚠ 部分任务失败/跳过：已把通过的合进 integration，失败项见上方报告。"
+            )
+        ok = report.all_passed and merge_report.all_merged and check_ok is not False
+        return 0 if ok else 1
+    finally:
+        if ndjson_writer is not None:
+            ndjson_writer.detach()
 
 
 def _print_review_hint(report: ParallelRunReport, base_branch: str) -> None:
@@ -948,6 +965,13 @@ def main(argv: list[str] | None = None) -> int:
         help="log file path (default: <base-repo>/.lwa-conduit/run.log; always written)",
     )
     run_p.add_argument("--dashboard", action="store_true", help="show rich TUI dashboard")
+    run_p.add_argument(
+        "--events",
+        choices=("none", "ndjson"),
+        default="none",
+        help="emit structured EventBus events to stderr as NDJSON "
+             "(schema lwa.conduit.event/v1); for Bridge / parent-process progress",
+    )
     run_p.add_argument(
         "--diagnose", action="store_true",
         help="capture structured conflict diagnostics on merge failure",
