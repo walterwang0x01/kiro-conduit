@@ -217,14 +217,47 @@ class Implementor:
             logger.debug("[implementor] prompt:\n%s", full_prompt)
 
             events = await client.prompt(session_id, full_prompt)
+            # 用户真实反馈：implementor 调用 kiro-cli 生成代码期间（往往是
+            # 几十秒到几分钟）完全没有任何输出，看起来像卡住——之前只把
+            # AgentMessageChunk/ToolCallEvent 静默 append 进 transcript，
+            # 从不打印。这里补上两类心跳：
+            #   1. ToolCallEvent：天然的进度里程碑（"正在写文件 X"这种），
+            #      每次到达立即打一条 info 日志。
+            #   2. AgentMessageChunk/AgentThoughtChunk：逐字符打太刷屏，
+            #      按累计字符数节流（每满 200 字符打一条摘要），既能证明
+            #      "确实在动"，又不会淹没真正有用的日志。
+            chunk_chars_since_last_log = 0
+            _LOG_EVERY_N_CHARS = 200
             async for event in events:
                 if isinstance(event, AgentMessageChunk):
                     transcript_parts.append(event.text)
+                    chunk_chars_since_last_log += len(event.text)
+                    if chunk_chars_since_last_log >= _LOG_EVERY_N_CHARS:
+                        logger.info(
+                            "[implementor] task=%s generating… (+%d chars)",
+                            task.id,
+                            chunk_chars_since_last_log,
+                        )
+                        chunk_chars_since_last_log = 0
                 elif isinstance(event, AgentThoughtChunk):
                     # 思考内容也记录进 transcript，方便排查
                     transcript_parts.append(f"[thought] {event.text}\n")
+                    chunk_chars_since_last_log += len(event.text)
+                    if chunk_chars_since_last_log >= _LOG_EVERY_N_CHARS:
+                        logger.info(
+                            "[implementor] task=%s thinking… (+%d chars)",
+                            task.id,
+                            chunk_chars_since_last_log,
+                        )
+                        chunk_chars_since_last_log = 0
                 elif isinstance(event, ToolCallEvent):
                     transcript_parts.append(f"[tool {event.status}] {event.name}\n")
+                    logger.info(
+                        "[implementor] task=%s tool %s: %s",
+                        task.id,
+                        event.status,
+                        event.name,
+                    )
                 elif isinstance(event, TurnEnd):
                     logger.info(
                         "[implementor] task=%s turn ended (stop=%s)",
